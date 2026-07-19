@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@theme {
+  --color-honey: #e3a105;
+  --color-honey-dark: #f0b52b;
+  --color-honey-deep: #a66e00;
+  --color-cream: #f8e2bb;
+  --color-canvas: var(--surface-canvas);
+  --color-shell: var(--surface-shell);
+  --color-panel: var(--surface-panel);
+  --color-ink: var(--content-ink);
+  --color-ink-soft: var(--content-ink-soft);
+  --color-ink-muted: var(--content-ink-muted);
+  --font-sans: "Manrope Variable", "Manrope", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --surface-canvas: #fbfaf7;
+  --surface-shell: #f6f2e9;
+  --surface-panel: #ffffff;
+  --content-ink: #29271f;
+  --content-ink-soft: #59564c;
+  --content-ink-muted: #8a867b;
+  color: var(--content-ink);
+  background: var(--surface-canvas);
+  color-scheme: light;
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:root.dark {
+  --surface-canvas: #171714;
+  --surface-shell: #1d1c18;
+  --surface-panel: #25231e;
+  --content-ink: #f6f0e3;
+  --content-ink-soft: #d7d0c0;
+  --content-ink-muted: #aaa293;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: rgb(227 161 5 / 48%) transparent; }
+html, body, #root { height: 100%; margin: 0; overflow: hidden; }
+body { min-width: 900px; min-height: 620px; }
+button, input, textarea, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+::selection { color: var(--content-ink); background: rgb(227 161 5 / 28%); }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { min-height: 36px; border: 2px solid transparent; border-radius: 999px; background: rgb(227 161 5 / 36%); background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: rgb(227 161 5 / 76%); background-clip: padding-box; }
+
+.titlebar { -webkit-app-region: drag; }
+.titlebar button, .titlebar a { -webkit-app-region: no-drag; }
+.window-control { display: grid; width: 46px; height: 100%; place-items: center; border: 0; color: var(--content-ink-muted); background: transparent; transition: color .14s ease, background-color .14s ease; }
+.window-control:hover { color: var(--content-ink); background: rgb(127 116 84 / 12%); }
+.window-control-close:hover { color: white; background: #d45542; }
+
+.sidebar-link { display: flex; height: 40px; align-items: center; gap: 11px; border: 0; border-radius: 12px; padding: 0 12px; color: var(--content-ink-muted); background: transparent; font-size: 12px; font-weight: 700; text-decoration: none; transition: color .15s ease, background-color .15s ease; }
+.sidebar-link:hover { color: var(--content-ink); background: rgb(127 116 84 / 10%); }
+.sidebar-link-active { color: var(--content-ink); background: var(--color-cream); }
+.sidebar-link-active > svg:last-child { opacity: .8; }
+
+.icon-button { display: grid; size: 36px; width: 36px; height: 36px; place-items: center; border: 1px solid rgb(127 116 84 / 15%); border-radius: 11px; color: var(--content-ink-muted); background: var(--surface-panel); transition: transform .15s ease, color .15s ease, border-color .15s ease; }
+.icon-button:hover { transform: translateY(-1px); color: var(--content-ink); border-color: rgb(227 161 5 / 48%); }
+.search-input { width: 100%; height: 42px; border: 1px solid rgb(127 116 84 / 15%); border-radius: 12px; padding: 0 14px 0 39px; color: var(--content-ink); background: var(--surface-panel); outline: none; font-size: 12px; transition: border-color .15s ease, box-shadow .15s ease; }
+.search-input::placeholder { color: var(--content-ink-muted); }
+.search-input:focus { border-color: rgb(227 161 5 / 65%); box-shadow: 0 0 0 3px rgb(227 161 5 / 12%); }
+.eyebrow { margin: 0; color: var(--color-honey-deep); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.artwork-frame { position: relative; overflow: hidden; border: 8px solid var(--surface-panel); border-radius: 19px; background: var(--surface-panel); box-shadow: 0 14px 34px rgb(75 52 10 / 10%); }
+.dark .artwork-frame { box-shadow: 0 14px 34px rgb(0 0 0 / 30%); }
+
+@media (max-width: 1040px) { main > div { padding-inline: 24px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
