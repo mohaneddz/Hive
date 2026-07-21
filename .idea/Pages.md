@@ -1,0 +1,10 @@
+Home
+Gallery
+Collections
+People
+Places
+Explorer
+Search
+Utilities
+Trash
+Settings
