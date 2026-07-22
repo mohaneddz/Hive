@@ -1,6 +1,10 @@
 # Logs
 logs
 *.log
+.playwright-cli/
+*.tmp
+*.temp
+*.bak
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
