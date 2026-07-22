@@ -38,6 +38,18 @@ Hive is a local-first desktop gallery for discovering, organizing, and saving co
 
 ---
 
+<img src="screenshots/collection.png" alt="Hive collection view" width="88%"/>
+
+**Collection:** A browsable private archive for reviewing and organizing artwork.
+
+---
+
+<img src="screenshots/artists.png" alt="Hive artists view" width="88%"/>
+
+**Artists:** A focused directory for discovering work by artist.
+
+---
+
 ## Project Structure
 
 ```text
@@ -114,3 +126,21 @@ pnpm tauri dev    # Run the desktop app
 - `#/artists` — Artist directory
 - `#/saved` — Saved artwork
 - `#/settings` — Gallery settings
+
+---
+
+## Collection Workflow
+
+1. Start in **Discover** to browse the current exhibition and selected arrivals.
+2. Use the search control to find artwork and artists.
+3. Open an artwork to review it, then save it to keep it in the private collection.
+4. Move between collection, artist, and saved views using the desktop sidebar.
+
+---
+
+## Data and Desktop Behavior
+
+- Hive preloads `sqlite:hive.db` through the Tauri SQL plugin.
+- The frontend uses a desktop-safe hash router, so navigation remains reliable inside the native window.
+- Theme preference and other lightweight preferences use Tauri Store.
+- The desktop surface includes persistent window state, clipboard, dialog, file, notification, HTTP, and logging integrations.
