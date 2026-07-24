@@ -85,8 +85,24 @@ CREATE VIRTUAL TABLE IF NOT EXISTS media_fts USING fts5(
 
 pub fn open(db_path: &Path) -> rusqlite::Result<Connection> {
     let conn = Connection::open(db_path)?;
-    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
     conn.pragma_update(None, "foreign_keys", true)?;
     conn.execute_batch(MIGRATIONS)?;
     Ok(conn)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_db_open() {
+        let db_path = std::env::temp_dir().join(format!("hive_test_{}.db", uuid::Uuid::new_v4()));
+        let conn = open(&db_path).expect("Failed to open database");
+        let journal_mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(journal_mode.to_lowercase(), "wal");
+        let _ = std::fs::remove_file(db_path);
+    }
 }
