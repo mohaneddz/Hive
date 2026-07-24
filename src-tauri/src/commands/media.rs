@@ -186,6 +186,47 @@ pub fn get_media_page(
 }
 
 #[tauri::command]
+pub fn search_media(
+    state: State<'_, AppState>,
+    query: String,
+    limit: i64,
+) -> Result<Vec<MediaItem>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return Ok(vec![]);
+    }
+    let fts_query = format!(
+        "{}*",
+        trimmed
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join("* ")
+            .replace('"', "")
+    );
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.id FROM media_fts f
+             JOIN media_items m ON m.id = f.media_id
+             WHERE media_fts MATCH ?1 AND m.is_trashed = 0
+             ORDER BY rank LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    let ids: Vec<String> = stmt
+        .query_map(params![fts_query, limit], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    ids.iter()
+        .map(|id| row_to_media_item(&conn, id))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_media_detail(state: State<'_, AppState>, media_id: String) -> Result<MediaItem, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     row_to_media_item(&conn, &media_id).map_err(|e| e.to_string())
