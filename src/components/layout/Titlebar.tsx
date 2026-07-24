@@ -3,6 +3,7 @@ import { Minus, Square, X } from "lucide-react";
 import { appConfig } from "@/config/app";
 import { useWindowControls } from "@/hooks/useWindowControls";
 import { HiveMark } from "@/components/brand/HiveMark";
+import { JobIndicator } from "@/components/layout/JobIndicator";
 
 export function Titlebar() {
   const { close, isMaximized, minimize, toggleMaximize } = useWindowControls();
@@ -25,7 +26,9 @@ export function Titlebar() {
         </span>
       </div>
 
-      <div className="flex h-full">
+      <JobIndicator />
+
+      <div className="ml-3 flex h-full">
         <button
           className="window-control"
           onClick={minimize}

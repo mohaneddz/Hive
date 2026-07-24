@@ -230,6 +230,8 @@ pub fn index_file(
         )?;
     }
 
+    upsert_fts(conn, &media_id, &filename, exif.as_ref())?;
+
     Ok(Some(IndexedFile {
         item: MediaItem {
             id: media_id,
@@ -253,6 +255,47 @@ pub fn index_file(
             thumbnail_path: None,
         },
     }))
+}
+
+fn upsert_fts(
+    conn: &Connection,
+    media_id: &str,
+    filename: &str,
+    exif: Option<&ExifData>,
+) -> rusqlite::Result<()> {
+    let existing_ocr: String = conn
+        .query_row(
+            "SELECT ocr_text FROM media_fts WHERE media_id = ?1",
+            params![media_id],
+            |r| r.get(0),
+        )
+        .unwrap_or_default();
+    conn.execute(
+        "DELETE FROM media_fts WHERE media_id = ?1",
+        params![media_id],
+    )?;
+    conn.execute(
+        "INSERT INTO media_fts (media_id, filename, camera_make, camera_model, ocr_text)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            media_id,
+            filename,
+            exif.and_then(|e| e.camera_make.clone()),
+            exif.and_then(|e| e.camera_model.clone()),
+            existing_ocr,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Replace the OCR text indexed for a media item. Wired up by the OCR pipeline (Phase 5).
+#[allow(dead_code)]
+pub fn update_fts_ocr_text(conn: &Connection, media_id: &str, ocr_text: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE media_fts SET ocr_text = ?2 WHERE media_id = ?1",
+        params![media_id, ocr_text],
+    )?;
+    Ok(())
 }
 
 pub fn walk_folder(root: &Path) -> Vec<std::path::PathBuf> {

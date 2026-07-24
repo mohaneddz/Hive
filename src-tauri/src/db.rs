@@ -72,6 +72,15 @@ CREATE TABLE IF NOT EXISTS duplicates (
 );
 
 CREATE INDEX IF NOT EXISTS idx_duplicates_group ON duplicates(group_id);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS media_fts USING fts5(
+    media_id UNINDEXED,
+    filename,
+    camera_make,
+    camera_model,
+    ocr_text,
+    tokenize = 'porter unicode61'
+);
 "#;
 
 pub fn open(db_path: &Path) -> rusqlite::Result<Connection> {

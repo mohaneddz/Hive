@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import * as api from "@/lib/tauri";
-import type { Folder, JobProgress, MediaItem } from "@/types/media";
+import { useJobProgress } from "@/hooks/useJobProgress";
+import type { Folder, MediaItem } from "@/types/media";
 
 const PAGE_SIZE = 60;
 
@@ -11,7 +12,7 @@ export function useMediaLibrary() {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [jobs, setJobs] = useState<Record<string, JobProgress>>({});
+  const jobs = useJobProgress();
 
   const refreshFolders = useCallback(async () => {
     if (!api.isTauri()) return;
@@ -73,24 +74,10 @@ export function useMediaLibrary() {
 
   useEffect(() => {
     if (!api.isTauri()) return;
-    const unlistenProgress = listen<JobProgress>("job:progress", (event) => {
-      const progress = event.payload;
-      setJobs((prev) => ({ ...prev, [progress.id]: progress }));
-      if (progress.status !== "running") {
-        setTimeout(() => {
-          setJobs((prev) => {
-            const next = { ...prev };
-            delete next[progress.id];
-            return next;
-          });
-        }, 2000);
-      }
-    });
     const unlistenChanged = listen("media:changed", () => {
       void loadPage(0);
     });
     return () => {
-      void unlistenProgress.then((dispose) => dispose());
       void unlistenChanged.then((dispose) => dispose());
     };
   }, [loadPage]);
@@ -100,7 +87,7 @@ export function useMediaLibrary() {
     items,
     total,
     loading,
-    jobs: Object.values(jobs),
+    jobs,
     addFolder,
     removeFolder,
     rescan,

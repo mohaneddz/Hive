@@ -2,7 +2,7 @@ import { Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { MediaCard } from "@/components/media/MediaCard";
-import { getMediaPage } from "@/lib/tauri";
+import { getMediaPage, searchMedia } from "@/lib/tauri";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import type { MediaItem, MediaType } from "@/types/media";
 import { cn } from "@/utils/cn";
@@ -23,14 +23,20 @@ export function SearchPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getMediaPage({
-      limit: 500,
-      offset: 0,
-      mediaType: mediaType === "all" ? undefined : mediaType,
-      favoritesOnly: favoritesOnly || undefined,
-    })
-      .then((page) => {
-        if (!cancelled) setItems(page.items);
+    const trimmed = query.trim();
+
+    const request = trimmed
+      ? searchMedia(trimmed)
+      : getMediaPage({
+          limit: 500,
+          offset: 0,
+          mediaType: mediaType === "all" ? undefined : mediaType,
+          favoritesOnly: favoritesOnly || undefined,
+        }).then((page) => page.items);
+
+    request
+      .then((results) => {
+        if (!cancelled) setItems(results);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -38,31 +44,21 @@ export function SearchPage() {
     return () => {
       cancelled = true;
     };
-  }, [mediaType, favoritesOnly]);
+  }, [query, mediaType, favoritesOnly]);
 
   const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return items;
-    return items.filter((item) => {
-      const haystack = [
-        item.filename,
-        item.exif?.cameraMake,
-        item.exif?.cameraModel,
-        item.mediaType,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(needle);
-    });
-  }, [items, query]);
+    if (!query.trim()) return items;
+    return items
+      .filter((item) => mediaType === "all" || item.mediaType === mediaType)
+      .filter((item) => !favoritesOnly || item.isFavorite);
+  }, [items, query, mediaType, favoritesOnly]);
 
   return (
     <div>
       <GalleryPageHeader
         eyebrow="Search"
         title="Find anything in your library."
-        description="Search by filename or camera. Semantic and content search land in a later phase."
+        description="Full-text search across filenames and camera metadata. Semantic search lands in a later phase."
       />
 
       <div className="mt-7 flex flex-wrap items-center gap-3">
