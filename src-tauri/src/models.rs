@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Folder {
     pub id: String,
     pub path: String,
@@ -10,6 +11,7 @@ pub struct Folder {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExifData {
     pub camera_make: Option<String>,
     pub camera_model: Option<String>,
@@ -23,6 +25,7 @@ pub struct ExifData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MediaItem {
     pub id: String,
     pub folder_id: String,
@@ -46,12 +49,14 @@ pub struct MediaItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MediaPage {
     pub items: Vec<MediaItem>,
     pub total: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub folder_id: String,
     pub scanned: i64,
@@ -60,6 +65,7 @@ pub struct ScanResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JobProgress {
     pub id: String,
     pub kind: String,

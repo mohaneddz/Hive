@@ -1,11 +1,4 @@
-import {
-  Compass,
-  Frame,
-  Heart,
-  Palette,
-  Settings,
-  type LucideIcon,
-} from "lucide-react";
+import { LayoutGrid, Search, Settings, type LucideIcon } from "lucide-react";
 
 export interface AppRoute {
   path: string;
@@ -15,29 +8,17 @@ export interface AppRoute {
 }
 
 export const routes = {
-  discover: {
+  gallery: {
     path: "/",
-    label: "Discover",
-    description: "Find work that moves you",
-    icon: Compass,
+    label: "Gallery",
+    description: "Every photo and video",
+    icon: LayoutGrid,
   },
-  collection: {
-    path: "/collection",
-    label: "Collection",
-    description: "Browse every work",
-    icon: Frame,
-  },
-  artists: {
-    path: "/artists",
-    label: "Artists",
-    description: "Meet the makers",
-    icon: Palette,
-  },
-  saved: {
-    path: "/saved",
-    label: "Saved",
-    description: "Your personal selection",
-    icon: Heart,
+  search: {
+    path: "/search",
+    label: "Search",
+    description: "Find anything, fast",
+    icon: Search,
   },
   settings: {
     path: "/settings",
@@ -47,9 +28,4 @@ export const routes = {
   },
 } satisfies Record<string, AppRoute>;
 
-export const navigationRoutes = [
-  routes.discover,
-  routes.collection,
-  routes.artists,
-  routes.saved,
-];
+export const navigationRoutes = [routes.gallery, routes.search];
