@@ -16,8 +16,12 @@ export function removeWatchedFolder(folderId: string): Promise<void> {
   return invoke("remove_watched_folder", { folderId });
 }
 
-export function scanFolder(folderId: string): Promise<ScanResult> {
+export function scanFolder(folderId: string): Promise<string> {
   return invoke("scan_folder", { folderId });
+}
+
+export function cancelJob(jobId: string): Promise<void> {
+  return invoke("cancel_job", { jobId });
 }
 
 export function getMediaPage(options: {
