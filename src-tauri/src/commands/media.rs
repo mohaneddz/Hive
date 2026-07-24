@@ -1,4 +1,4 @@
-use crate::models::{ExifData, MediaItem, MediaPage, ScanResult};
+use crate::models::{ExifData, MediaItem, MediaPage};
 use crate::state::AppState;
 use crate::{db, indexing, jobs, thumbnails};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -70,13 +70,14 @@ fn row_to_media_item(conn: &Connection, id: &str) -> rusqlite::Result<MediaItem>
 }
 
 #[tauri::command]
-pub async fn scan_folder(
+pub fn scan_folder(
     app: AppHandle,
     state: State<'_, AppState>,
     folder_id: String,
-) -> Result<ScanResult, String> {
+) -> Result<String, String> {
     let db_path = state.db_path.clone();
     let app_data_dir = state.app_data_dir.clone();
+    let cancelled_jobs = state.cancelled_jobs.clone();
 
     let folder_path: String = {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
@@ -86,32 +87,52 @@ pub async fn scan_folder(
         .map_err(|e| e.to_string())?
     };
 
-    tauri::async_runtime::spawn_blocking(move || -> Result<ScanResult, String> {
-        let conn = db::open(&db_path).map_err(|e| e.to_string())?;
-        let job_id = jobs::create_job(&conn, "scan_folder").map_err(|e| e.to_string())?;
+    let conn = db::open(&db_path).map_err(|e| e.to_string())?;
+    let job_id = jobs::create_job(&conn, "scan_folder").map_err(|e| e.to_string())?;
+    let job_id_ret = job_id.clone();
 
+    tauri::async_runtime::spawn_blocking(move || {
+        let Ok(conn) = db::open(&db_path) else { return };
         let files = indexing::walk_folder(std::path::Path::new(&folder_path));
         let total = files.len() as i64;
-        let mut added = 0i64;
-        let mut skipped = 0i64;
+
+        jobs::emit_progress(&app, &conn, &job_id, "scan_folder", "running", 0, total, None);
+        let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
 
         for (i, path) in files.iter().enumerate() {
+            if cancelled_jobs.lock().unwrap().contains(&job_id) {
+                jobs::cancel_job(&conn, &job_id);
+                jobs::emit_progress(
+                    &app,
+                    &conn,
+                    &job_id,
+                    "scan_folder",
+                    "cancelled",
+                    i as i64,
+                    total,
+                    Some("Cancelled by user".to_string()),
+                );
+                cancelled_jobs.lock().unwrap().remove(&job_id);
+                let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+                return;
+            }
+
             match indexing::index_file(&conn, &folder_id, path) {
                 Ok(Some(indexed)) => {
-                    added += 1;
                     let _ = thumbnails::generate_for_image(
                         &conn,
                         &app_data_dir,
                         &indexed.item.id,
                         path,
                     );
+                    let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
                 }
-                Ok(None) => skipped += 1,
+                Ok(None) => {}
                 Err(e) => {
-                    skipped += 1;
                     jobs::fail_job(&conn, &job_id, &e.to_string());
                 }
             }
+
             jobs::emit_progress(
                 &app,
                 &conn,
@@ -125,16 +146,18 @@ pub async fn scan_folder(
         }
 
         jobs::emit_progress(&app, &conn, &job_id, "scan_folder", "completed", total, total, None);
+        let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+    });
 
-        Ok(ScanResult {
-            folder_id,
-            scanned: total,
-            added,
-            skipped,
-        })
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    Ok(job_id_ret)
+}
+
+#[tauri::command]
+pub fn cancel_job(state: State<'_, AppState>, job_id: String) -> Result<(), String> {
+    state.cancelled_jobs.lock().unwrap().insert(job_id.clone());
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    jobs::cancel_job(&conn, &job_id);
+    Ok(())
 }
 
 #[tauri::command]
