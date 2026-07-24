@@ -33,6 +33,10 @@ export function getMediaDetail(mediaId: string): Promise<MediaItem> {
   return invoke("get_media_detail", { mediaId });
 }
 
+export function searchMedia(query: string, limit = 200): Promise<MediaItem[]> {
+  return invoke("search_media", { query, limit });
+}
+
 export async function readMediaUrl(
   mediaId: string,
   variant: "sm" | "md" | "original",
