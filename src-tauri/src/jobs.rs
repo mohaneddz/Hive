@@ -50,3 +50,11 @@ pub fn fail_job(conn: &Connection, job_id: &str, error: &str) {
         params![error, now, job_id],
     );
 }
+
+pub fn cancel_job(conn: &Connection, job_id: &str) {
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = conn.execute(
+        "UPDATE jobs SET status = 'cancelled', updated_at = ?2 WHERE id = ?1",
+        params![job_id, now],
+    );
+}
