@@ -1,0 +1,64 @@
+export interface Folder {
+  id: string;
+  path: string;
+  name: string;
+  isWatched: boolean;
+  addedAt: string;
+}
+
+export interface ExifData {
+  cameraMake: string | null;
+  cameraModel: string | null;
+  lens: string | null;
+  iso: number | null;
+  fNumber: number | null;
+  exposureTime: string | null;
+  focalLength: number | null;
+  gpsLat: number | null;
+  gpsLon: number | null;
+}
+
+export type MediaType = "image" | "video";
+
+export interface MediaItem {
+  id: string;
+  folderId: string;
+  path: string;
+  filename: string;
+  hash: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  mimeType: string;
+  mediaType: MediaType;
+  takenAt: string | null;
+  createdAt: string;
+  modifiedAt: string;
+  indexedAt: string;
+  isFavorite: boolean;
+  isTrashed: boolean;
+  exif: ExifData | null;
+  thumbnailPath: string | null;
+}
+
+export interface MediaPage {
+  items: MediaItem[];
+  total: number;
+}
+
+export interface ScanResult {
+  folderId: string;
+  scanned: number;
+  added: number;
+  skipped: number;
+}
+
+export interface JobProgress {
+  id: string;
+  kind: string;
+  status: "running" | "completed" | "failed";
+  current: number;
+  total: number;
+  message: string | null;
+}
