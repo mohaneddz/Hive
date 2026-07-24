@@ -1,4 +1,4 @@
-import { FolderPlus, ImagePlus, Loader2 } from "lucide-react";
+import { FolderPlus, ImagePlus, Loader2, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { Button } from "@/components/ui/Button";
@@ -7,7 +7,7 @@ import { useMediaLibrary } from "@/hooks/useMediaLibrary";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 
 export function GalleryPage() {
-  const { items, total, loading, jobs, folders, addFolder, loadPage } = useMediaLibrary();
+  const { items, total, loading, jobs, folders, addFolder, cancelJob, loadPage } = useMediaLibrary();
 
   const chooseFolder = async () => {
     try {
@@ -40,10 +40,21 @@ export function GalleryPage() {
       />
 
       {activeJob && (
-        <div className="mt-5 flex items-center gap-3 rounded-2xl border border-honey/30 bg-cream/45 px-4 py-3 text-xs font-semibold text-honey-deep">
-          <Loader2 size={15} className="animate-spin" />
-          Indexing {activeJob.current}/{activeJob.total}
-          {activeJob.message ? ` — ${activeJob.message}` : ""}
+        <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-honey/30 bg-cream/45 px-4 py-3 text-xs font-semibold text-honey-deep">
+          <div className="flex items-center gap-3">
+            <Loader2 size={15} className="animate-spin shrink-0" />
+            <span>
+              Indexing {activeJob.current}/{activeJob.total}
+              {activeJob.message ? ` — ${activeJob.message}` : ""}
+            </span>
+          </div>
+          <button
+            onClick={() => cancelJob(activeJob.id)}
+            className="flex items-center gap-1.5 rounded-lg bg-honey/20 px-3 py-1.5 text-xs font-bold text-honey-deep transition hover:bg-honey/30"
+          >
+            <X size={14} />
+            Cancel
+          </button>
         </div>
       )}
 

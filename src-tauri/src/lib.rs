@@ -54,6 +54,7 @@ pub fn run() {
                 app_data_dir,
                 conn: std::sync::Mutex::new(conn),
                 watchers,
+                cancelled_jobs: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
             });
 
             Ok(())
@@ -63,6 +64,7 @@ pub fn run() {
             commands::folders::add_watched_folder,
             commands::folders::remove_watched_folder,
             commands::media::scan_folder,
+            commands::media::cancel_job,
             commands::media::search_media,
             commands::media::get_media_page,
             commands::media::get_media_detail,

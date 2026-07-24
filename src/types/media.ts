@@ -57,7 +57,7 @@ export interface ScanResult {
 export interface JobProgress {
   id: string;
   kind: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | "completed" | "failed" | "cancelled";
   current: number;
   total: number;
   message: string | null;
