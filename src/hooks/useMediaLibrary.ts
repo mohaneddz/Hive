@@ -39,13 +39,18 @@ export function useMediaLibrary() {
     [],
   );
 
+  const cancelJob = useCallback(async (jobId: string) => {
+    if (!api.isTauri()) return;
+    await api.cancelJob(jobId);
+  }, []);
+
   const addFolder = useCallback(
     async (path: string) => {
       const folder = await api.addWatchedFolder(path);
       await refreshFolders();
-      const result = await api.scanFolder(folder.id);
+      void api.scanFolder(folder.id);
       await loadPage(0);
-      return result;
+      return folder;
     },
     [refreshFolders, loadPage],
   );
@@ -61,7 +66,7 @@ export function useMediaLibrary() {
 
   const rescan = useCallback(
     async (folderId: string) => {
-      await api.scanFolder(folderId);
+      void api.scanFolder(folderId);
       await loadPage(0);
     },
     [loadPage],
@@ -91,6 +96,7 @@ export function useMediaLibrary() {
     addFolder,
     removeFolder,
     rescan,
+    cancelJob,
     loadPage,
     refreshFolders,
   };
