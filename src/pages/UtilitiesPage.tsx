@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   FileQuestion,
+  Focus,
   HardDrive,
   Loader2,
   RefreshCw,
@@ -20,6 +21,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { DuplicatesPanel } from "@/components/duplicates/DuplicatesPanel";
 import { BackupPanel } from "@/components/utilities/BackupPanel";
 import { BatchPanel } from "@/components/utilities/BatchPanel";
+import { BlurPanel } from "@/components/utilities/BlurPanel";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import {
   clearThumbnailCache,
@@ -34,11 +36,12 @@ import type { LibraryHealth, StorageStats } from "@/types/media";
 import { cn } from "@/utils/cn";
 import { formatBytes, formatCount, formatDateTime } from "@/utils/format";
 
-type Tab = "storage" | "duplicates" | "health" | "batch" | "export" | "backup";
+type Tab = "storage" | "duplicates" | "blur" | "health" | "batch" | "export" | "backup";
 
 const TABS: { key: Tab; label: string; icon: typeof HardDrive }[] = [
   { key: "storage", label: "Storage", icon: HardDrive },
   { key: "duplicates", label: "Duplicates", icon: Copy },
+  { key: "blur", label: "Out of focus", icon: Focus },
   { key: "health", label: "Missing & broken", icon: AlertTriangle },
   { key: "batch", label: "Batch", icon: Wand2 },
   { key: "export", label: "Export", icon: Download },
@@ -257,6 +260,8 @@ export function UtilitiesPage() {
 
       {/* Perceptual duplicate detection is Mohaned's, and lives in his panel. */}
       {tab === "duplicates" && <DuplicatesPanel />}
+
+      {tab === "blur" && <BlurPanel />}
 
       {/* -------------------------------------------------------- health -- */}
       {tab === "health" && (
