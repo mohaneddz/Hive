@@ -20,7 +20,7 @@ export function useMediaLibrary() {
   }, []);
 
   const loadPage = useCallback(
-    async (offset = 0, options?: { mediaType?: string; favoritesOnly?: boolean }) => {
+    async (offset = 0, options?: { mediaType?: string; favoritesOnly?: boolean; folderId?: string }) => {
       if (!api.isTauri()) return;
       setLoading(true);
       try {
@@ -29,6 +29,7 @@ export function useMediaLibrary() {
           offset,
           mediaType: options?.mediaType,
           favoritesOnly: options?.favoritesOnly,
+          folderId: options?.folderId,
         });
         setItems((prev) => (offset === 0 ? page.items : [...prev, ...page.items]));
         setTotal(page.total);
