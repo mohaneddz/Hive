@@ -71,6 +71,50 @@ pub fn list_folders_with_stats(state: State<'_, AppState>) -> Result<Vec<FolderS
         .collect::<Result<Vec<_>, String>>()
 }
 
+/// Pauses or resumes live watching for one folder. Pausing keeps every indexed
+/// photo in place — it only stops Hive from reacting to new files, which is what
+/// you want for an archive drive or a folder you are reorganising by hand.
+#[tauri::command]
+pub fn set_folder_watched(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    folder_id: String,
+    watched: bool,
+) -> Result<(), String> {
+    let path: String = {
+        let conn = state.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE folders SET is_watched = ?1 WHERE id = ?2",
+            params![watched as i64, folder_id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT path FROM folders WHERE id = ?1",
+            params![folder_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?
+    };
+
+    if watched {
+        state
+            .watchers
+            .watch(
+                app,
+                state.db_path.clone(),
+                state.app_data_dir.clone(),
+                folder_id,
+                std::path::PathBuf::from(path),
+                state.ai.clone(),
+            )
+            .map_err(|e| e.to_string())?;
+    } else {
+        state.watchers.unwatch(&folder_id);
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub fn add_watched_folder(
     app: AppHandle,
