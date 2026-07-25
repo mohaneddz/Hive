@@ -85,6 +85,13 @@ pub struct PlaceCluster {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DuplicateGroup {
+    pub group_id: String,
+    pub items: Vec<MediaItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LibraryStats {
     pub total_items: i64,
     pub total_bytes: i64,
