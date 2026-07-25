@@ -1,6 +1,7 @@
 mod ai;
 mod commands;
 mod db;
+mod duplicates;
 mod indexing;
 mod jobs;
 mod models;
@@ -97,6 +98,9 @@ pub fn run() {
             commands::ai::download_ai_models,
             commands::ai::semantic_search,
             commands::ai::backfill_embeddings,
+            commands::duplicates::scan_duplicates,
+            commands::duplicates::get_duplicate_groups,
+            commands::duplicates::dismiss_duplicate_group,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hive");
