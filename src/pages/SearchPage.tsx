@@ -1,9 +1,10 @@
-import { Search, X } from "lucide-react";
+import { Search, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { MediaCard } from "@/components/media/MediaCard";
-import { getMediaPage, searchMedia } from "@/lib/tauri";
+import { useAiStatus } from "@/hooks/useAiStatus";
+import { getMediaPage, searchMedia, semanticSearch } from "@/lib/tauri";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import type { MediaItem, MediaType } from "@/types/media";
 import { cn } from "@/utils/cn";
@@ -19,8 +20,10 @@ export function SearchPage() {
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [mediaType, setMediaType] = useState<MediaType | "all">("all");
   const [favoritesOnly, setFavoritesOnly] = useState(() => searchParams.get("favorites") === "1");
+  const [mode, setMode] = useState<"exact" | "semantic">("exact");
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const { status: aiStatus } = useAiStatus();
 
   useEffect(() => {
     const fromUrl = searchParams.get("q");
@@ -33,14 +36,16 @@ export function SearchPage() {
     setLoading(true);
     const trimmed = query.trim();
 
-    const request = trimmed
-      ? searchMedia(trimmed)
-      : getMediaPage({
+    const request = !trimmed
+      ? getMediaPage({
           limit: 500,
           offset: 0,
           mediaType: mediaType === "all" ? undefined : mediaType,
           favoritesOnly: favoritesOnly || undefined,
-        }).then((page) => page.items);
+        }).then((page) => page.items)
+      : mode === "semantic" && aiStatus?.modelsReady
+        ? semanticSearch(trimmed)
+        : searchMedia(trimmed);
 
     request
       .then((results) => {
@@ -52,7 +57,7 @@ export function SearchPage() {
     return () => {
       cancelled = true;
     };
-  }, [query, mediaType, favoritesOnly]);
+  }, [query, mediaType, favoritesOnly, mode, aiStatus?.modelsReady]);
 
   const visible = useMemo(() => {
     if (!query.trim()) return items;
@@ -66,7 +71,11 @@ export function SearchPage() {
       <GalleryPageHeader
         eyebrow="Search"
         title="Find anything in your library."
-        description="Full-text search across filenames and camera metadata. Semantic search lands in a later phase."
+        description={
+          mode === "semantic"
+            ? "Semantic search — describe what you're looking for, not just the filename."
+            : "Full-text search across filenames and camera metadata."
+        }
       />
 
       <div className="mt-7 flex flex-wrap items-center gap-3">
@@ -76,9 +85,30 @@ export function SearchPage() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             className="search-input"
-            placeholder="Search filename or camera"
+            placeholder={mode === "semantic" ? "Describe what you're looking for…" : "Search filename or camera"}
           />
         </label>
+
+        <div className="flex items-center gap-1 rounded-xl border border-ink/[.12] bg-panel p-1">
+          <button
+            onClick={() => setMode("semantic")}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-ink-muted transition",
+              mode === "semantic" && "bg-cream text-honey-deep",
+            )}
+          >
+            <Sparkles size={12} /> Semantic
+          </button>
+          <button
+            onClick={() => setMode("exact")}
+            className={cn(
+              "rounded-lg px-3 py-1.5 text-xs font-bold text-ink-muted transition",
+              mode === "exact" && "bg-cream text-honey-deep",
+            )}
+          >
+            Exact
+          </button>
+        </div>
 
         <div className="flex items-center gap-1 rounded-xl border border-ink/[.12] bg-panel p-1">
           {TYPE_FILTERS.map((filter) => (
@@ -119,6 +149,15 @@ export function SearchPage() {
           </button>
         )}
       </div>
+
+      {mode === "semantic" && aiStatus && !aiStatus.modelsReady && (
+        <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-dashed border-ink/[.15] p-4 text-xs text-ink-muted">
+          <span>Semantic search needs the local AI model, which isn't downloaded yet.</span>
+          <Link to="/settings" className="font-bold text-honey-deep hover:underline">
+            Enable in Settings
+          </Link>
+        </div>
+      )}
 
       {loading ? (
         <div className="mt-12 text-center text-sm text-ink-muted">Searching…</div>

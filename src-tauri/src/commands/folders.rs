@@ -112,6 +112,7 @@ pub fn add_watched_folder(
             state.app_data_dir.clone(),
             folder_id.clone(),
             folder_path.to_path_buf(),
+            state.ai.clone(),
         )
         .map_err(|e| e.to_string())?;
 

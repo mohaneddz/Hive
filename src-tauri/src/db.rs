@@ -81,6 +81,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS media_fts USING fts5(
     ocr_text,
     tokenize = 'porter unicode61'
 );
+
+CREATE TABLE IF NOT EXISTS embeddings (
+    media_id TEXT PRIMARY KEY REFERENCES media_items(id) ON DELETE CASCADE,
+    model TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    vector BLOB NOT NULL,
+    created_at TEXT NOT NULL
+);
 "#;
 
 pub fn open(db_path: &Path) -> rusqlite::Result<Connection> {
