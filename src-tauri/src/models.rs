@@ -258,6 +258,55 @@ pub struct LibraryHealth {
     pub broken: Vec<MediaItem>,
 }
 
+/// One slice of the timeline: a year, a month or a day.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelineBucket {
+    /// The value `strftime` produced, e.g. "2024" or "2024-06".
+    pub key: String,
+    pub label: String,
+    pub count: i64,
+    pub cover_media_id: Option<String>,
+    pub start: String,
+    pub end: String,
+}
+
+/// A run of photos taken close together. `isTrip` marks the ones that also
+/// happened far from home; `distanceKm` is how far.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventGroup {
+    pub id: String,
+    pub start: String,
+    pub end: String,
+    pub count: i64,
+    pub cover_media_id: String,
+    pub media_ids: Vec<String>,
+    pub lat: Option<f64>,
+    pub lon: Option<f64>,
+    pub is_trip: bool,
+    pub distance_km: f64,
+}
+
+/// A photo and its sharpness score. Lower means softer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlurryItem {
+    pub item: MediaItem,
+    pub score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlurReport {
+    /// How many photos were measured during this run.
+    pub scanned: i64,
+    /// How many have a score at all, including from earlier runs.
+    pub measured: i64,
+    pub threshold: f64,
+    pub items: Vec<BlurryItem>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportReport {
