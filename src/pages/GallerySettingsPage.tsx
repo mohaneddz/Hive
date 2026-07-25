@@ -14,15 +14,19 @@ import {
   backfillOcr,
   backfillThumbnails,
   downloadAiModels,
+  applyCacheLimit,
   clearThumbnailCache,
   downloadFaceModels,
   downloadOcrModels,
+  getCacheLimitMb,
   getGeocodingEnabled,
   getStorageStats,
   isTauri,
+  setCacheLimitMb,
   setFolderWatched,
   setGeocodingEnabled,
 } from "@/lib/tauri";
+import { ShortcutEditor } from "@/components/settings/ShortcutEditor";
 import { useLibraryStats } from "@/hooks/useLibraryStats";
 import type { StorageStats } from "@/types/media";
 import { formatCount } from "@/utils/format";
@@ -30,17 +34,12 @@ import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import { formatBytes } from "@/utils/format";
 import { cn } from "@/utils/cn";
 
-const SHORTCUTS: [string, string][] = [
-  ["← →", "Previous / next photo"],
-  ["I", "Toggle the details drawer"],
-  ["E", "Open the editor"],
-  ["R", "Rotate the view"],
-  ["+ / −", "Zoom in and out"],
-  ["0", "Reset zoom"],
-  ["Space", "Play or pause the slideshow"],
-  ["F", "Fullscreen"],
-  ["Del", "Move to trash"],
-  ["Esc", "Close the viewer"],
+/** 0 keeps the cache unbounded, which is how Hive behaved before this existed. */
+const CACHE_LIMITS = [
+  { label: "No limit", megabytes: 0 },
+  { label: "500 MB", megabytes: 500 },
+  { label: "2 GB", megabytes: 2048 },
+  { label: "5 GB", megabytes: 5120 },
 ];
 
 const choices: { value: Theme; label: string; icon: typeof Sun; caption: string }[] = [
@@ -63,11 +62,13 @@ export function GallerySettingsPage() {
   const [storage, setStorage] = useState<StorageStats | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
+  const [cacheLimit, setCacheLimit] = useState(0);
   const { stats } = useLibraryStats();
 
   useEffect(() => {
     if (!isTauri()) return;
     void getGeocodingEnabled().then(setGeocoding);
+    void getCacheLimitMb().then(setCacheLimit);
   }, []);
 
   const loadStorage = useCallback(async () => {
@@ -524,6 +525,39 @@ export function GallerySettingsPage() {
             Only thumbnails and the database are storage Hive created. Clearing the cache costs
             time on the next scan, never photos.
           </p>
+
+          <div className="mt-5 border-t border-ink/[.07] pt-5">
+            <p className="text-xs font-extrabold text-ink">Cache ceiling</p>
+            <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-ink-muted">
+              Thumbnails otherwise grow for as long as you add photos. With a ceiling set, Hive
+              drops the ones you have not looked at in a while until the cache fits — they are
+              rebuilt on demand, so nothing is lost but time.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {CACHE_LIMITS.map((entry) => (
+                <button
+                  key={entry.label}
+                  onClick={async () => {
+                    await setCacheLimitMb(entry.megabytes);
+                    setCacheLimit(entry.megabytes);
+                    await applyCacheLimit();
+                    await loadStorage();
+                  }}
+                  className={cn(
+                    "rounded-xl border px-3.5 py-2 text-[11px] font-bold transition",
+                    cacheLimit === entry.megabytes
+                      ? "border-honey bg-cream/55 text-honey-deep"
+                      : "border-ink/[.1] bg-canvas text-ink hover:border-honey/40",
+                  )}
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2.5 text-[10px] text-ink-muted">
+              Applied when Hive starts, and whenever you change it here.
+            </p>
+          </div>
         </Card>
 
         <Card className="p-6">
@@ -560,22 +594,12 @@ export function GallerySettingsPage() {
             </div>
             <div>
               <h2 className="text-base font-extrabold text-ink">Shortcuts</h2>
-              <p className="mt-0.5 text-xs text-ink-muted">What the keyboard does today.</p>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                Click any key to rebind it. Changes apply immediately.
+              </p>
             </div>
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-2">
-            {SHORTCUTS.map(([keys, description]) => (
-              <div
-                key={keys}
-                className="flex items-center gap-3 rounded-2xl border border-ink/[.08] bg-canvas p-3"
-              >
-                <kbd className="shrink-0 rounded-lg border border-ink/15 bg-panel px-2.5 py-1 text-[11px] font-extrabold text-ink">
-                  {keys}
-                </kbd>
-                <span className="text-[11px] text-ink-muted">{description}</span>
-              </div>
-            ))}
-          </div>
+          <ShortcutEditor />
         </Card>
 
         <Card className="p-6">
