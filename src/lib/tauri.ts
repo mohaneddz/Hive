@@ -104,6 +104,14 @@ export function backfillEmbeddings(): Promise<void> {
   return invoke("backfill_embeddings");
 }
 
+export function downloadOcrModels(): Promise<void> {
+  return invoke("download_ocr_models");
+}
+
+export function backfillOcr(): Promise<void> {
+  return invoke("backfill_ocr");
+}
+
 export function scanDuplicates(): Promise<number> {
   return invoke("scan_duplicates");
 }
