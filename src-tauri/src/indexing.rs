@@ -134,13 +134,21 @@ pub fn index_file(
         return Ok(None);
     }
 
-    let (width, height) = if media_type == "image" {
-        image::image_dimensions(path)
-            .map(|(w, h)| (Some(w as i64), Some(h as i64)))
-            .unwrap_or((None, None))
-    } else {
-        (None, None)
-    };
+    let loaded_image = if media_type == "image" { image::open(path).ok() } else { None };
+    let (width, height) = loaded_image
+        .as_ref()
+        .map(|img| {
+            use image::GenericImageView;
+            let (w, h) = img.dimensions();
+            (Some(w as i64), Some(h as i64))
+        })
+        .unwrap_or((None, None));
+    let phash: Option<String> = loaded_image.as_ref().map(|img| {
+        image_hasher::HasherConfig::new()
+            .to_hasher()
+            .hash_image(img)
+            .to_base64()
+    });
 
     let mime_type = mime_guess::from_path(path)
         .first_or_octet_stream()
@@ -173,13 +181,14 @@ pub fn index_file(
         "INSERT INTO media_items
             (id, folder_id, path, filename, hash, size, width, height, duration_ms,
              mime_type, media_type, taken_at, created_at, modified_at, indexed_at,
-             is_favorite, is_trashed)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,NULL,?9,?10,?11,?12,?13,?14,0,0)
+             is_favorite, is_trashed, phash)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,NULL,?9,?10,?11,?12,?13,?14,0,0,?15)
          ON CONFLICT(path) DO UPDATE SET
             hash=excluded.hash, size=excluded.size, width=excluded.width,
             height=excluded.height, mime_type=excluded.mime_type,
             media_type=excluded.media_type, taken_at=excluded.taken_at,
-            modified_at=excluded.modified_at, indexed_at=excluded.indexed_at",
+            modified_at=excluded.modified_at, indexed_at=excluded.indexed_at,
+            phash=excluded.phash",
         params![
             id,
             folder_id,
@@ -195,6 +204,7 @@ pub fn index_file(
             created_at.to_rfc3339(),
             modified_at.to_rfc3339(),
             now.to_rfc3339(),
+            phash,
         ],
     )?;
 
