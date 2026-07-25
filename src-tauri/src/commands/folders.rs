@@ -1,6 +1,6 @@
-use crate::models::Folder;
+use crate::models::{Folder, FolderStats};
 use crate::state::AppState;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use tauri::{AppHandle, State};
 
 #[tauri::command]
@@ -21,6 +21,54 @@ pub fn list_folders(state: State<'_, AppState>) -> Result<Vec<Folder>, String> {
         })
         .map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_folders_with_stats(state: State<'_, AppState>) -> Result<Vec<FolderStats>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT id, path, name, is_watched, added_at FROM folders ORDER BY added_at DESC")
+        .map_err(|e| e.to_string())?;
+    let folders = stmt
+        .query_map([], |r| {
+            Ok(Folder {
+                id: r.get(0)?,
+                path: r.get(1)?,
+                name: r.get(2)?,
+                is_watched: r.get::<_, i64>(3)? != 0,
+                added_at: r.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    folders
+        .into_iter()
+        .map(|folder| {
+            let item_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM media_items WHERE folder_id = ?1 AND is_trashed = 0",
+                    params![folder.id],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            let cover_media_id: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM media_items WHERE folder_id = ?1 AND is_trashed = 0
+                     ORDER BY COALESCE(taken_at, created_at) DESC LIMIT 1",
+                    params![folder.id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?;
+            Ok(FolderStats {
+                folder,
+                item_count,
+                cover_media_id,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()
 }
 
 #[tauri::command]
