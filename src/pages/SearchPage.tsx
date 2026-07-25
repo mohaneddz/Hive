@@ -94,7 +94,7 @@ export function SearchPage() {
             onClick={() => setMode("semantic")}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-ink-muted transition",
-              mode === "semantic" && "bg-cream text-honey-deep",
+              mode === "semantic" && "bg-honey/15 text-honey-deep",
             )}
           >
             <Sparkles size={12} /> Semantic
@@ -103,7 +103,7 @@ export function SearchPage() {
             onClick={() => setMode("exact")}
             className={cn(
               "rounded-lg px-3 py-1.5 text-xs font-bold text-ink-muted transition",
-              mode === "exact" && "bg-cream text-honey-deep",
+              mode === "exact" && "bg-honey/15 text-honey-deep",
             )}
           >
             Exact
@@ -117,7 +117,7 @@ export function SearchPage() {
               onClick={() => setMediaType(filter.value)}
               className={cn(
                 "rounded-lg px-3 py-1.5 text-xs font-bold text-ink-muted transition",
-                mediaType === filter.value && "bg-cream text-honey-deep",
+                mediaType === filter.value && "bg-honey/15 text-honey-deep",
               )}
             >
               {filter.label}
@@ -129,7 +129,7 @@ export function SearchPage() {
           onClick={() => setFavoritesOnly((v) => !v)}
           className={cn(
             "inline-flex h-[42px] items-center gap-2 rounded-xl border border-ink/[.12] bg-panel px-3 text-xs font-bold text-ink",
-            favoritesOnly && "border-honey/50 bg-cream/55 text-honey-deep",
+            favoritesOnly && "border-honey/50 bg-honey/12 text-honey-deep",
           )}
         >
           Favorites only

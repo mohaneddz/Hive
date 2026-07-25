@@ -112,6 +112,7 @@ pub fn run() {
             commands::media::delete_media_permanently,
             commands::media::get_places,
             commands::media::get_library_stats,
+            commands::media::backfill_thumbnails,
             commands::ai::get_ai_status,
             commands::ai::download_ai_models,
             commands::ai::semantic_search,

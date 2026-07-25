@@ -124,11 +124,12 @@ pub fn scan_folder(
 
             match indexing::index_file(&conn, &folder_id, path) {
                 Ok(Some(indexed)) => {
-                    let _ = thumbnails::generate_for_image(
+                    let _ = thumbnails::generate(
                         &conn,
                         &app_data_dir,
                         &indexed.item.id,
                         path,
+                        &indexed.item.media_type,
                     );
                     newly_indexed.push((indexed.item.id, path.clone()));
                     let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
@@ -456,4 +457,50 @@ pub fn get_library_stats(state: State<'_, AppState>) -> Result<LibraryStats, Str
         },
     )
     .map_err(|e| e.to_string())
+}
+
+/// Regenerates thumbnails for any already-indexed item missing one — covers items indexed
+/// before video-thumbnail support existed, or where generation failed the first time (e.g.
+/// ffmpeg wasn't installed yet).
+#[tauri::command]
+pub async fn backfill_thumbnails(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let db_path = state.db_path.clone();
+    let app_data_dir = state.app_data_dir.clone();
+    let cancelled_jobs = state.cancelled_jobs.clone();
+
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let conn = db::open(&db_path).map_err(|e| e.to_string())?;
+        let job_id = jobs::create_job(&conn, "thumbnail_backfill").map_err(|e| e.to_string())?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT m.id, m.path, m.media_type FROM media_items m
+                 LEFT JOIN thumbnails t ON t.media_id = m.id AND t.size = 'sm'
+                 WHERE m.is_trashed = 0 AND t.media_id IS NULL",
+            )
+            .map_err(|e| e.to_string())?;
+        let pending: Vec<(String, String, String)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        drop(stmt);
+
+        let total = pending.len() as i64;
+        for (i, (media_id, path, media_type)) in pending.iter().enumerate() {
+            if cancelled_jobs.lock().unwrap().remove(&job_id) {
+                jobs::cancel_job(&conn, &job_id);
+                jobs::emit_progress(&app, &conn, &job_id, "thumbnail_backfill", "cancelled", i as i64, total, None);
+                return Ok(());
+            }
+            let _ = thumbnails::generate(&conn, &app_data_dir, media_id, std::path::Path::new(path), media_type);
+            jobs::emit_progress(&app, &conn, &job_id, "thumbnail_backfill", "running", i as i64 + 1, total, None);
+        }
+
+        jobs::emit_progress(&app, &conn, &job_id, "thumbnail_backfill", "completed", total, total, None);
+        let _ = tauri::Emitter::emit(&app, "media:changed", "");
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
