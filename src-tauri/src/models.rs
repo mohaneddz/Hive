@@ -181,6 +181,15 @@ pub struct EditOps {
     pub brightness: f32,
     pub contrast: f32,
     pub saturation: f32,
+    /// 0 leaves colour alone, 1 is fully black and white.
+    #[serde(default)]
+    pub grayscale: f32,
+    /// 0 leaves colour alone, 1 is a full sepia tone.
+    #[serde(default)]
+    pub sepia: f32,
+    /// −1 cools the image towards blue, +1 warms it towards orange.
+    #[serde(default)]
+    pub temperature: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
