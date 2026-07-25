@@ -53,6 +53,7 @@ impl WatcherRegistry {
                         path,
                     );
                     crate::commands::ai::try_embed_image(&ai, &conn, &indexed.item.id, path);
+                    crate::commands::ai::try_extract_ocr_text(&ai, &conn, &indexed.item.id, path);
                     changed = true;
                 }
             }
