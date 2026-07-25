@@ -1,3 +1,4 @@
+mod ai;
 mod commands;
 mod db;
 mod indexing;
@@ -37,6 +38,8 @@ pub fn run() {
                 rows.collect::<rusqlite::Result<Vec<_>>>()?
             };
 
+            let ai_state = std::sync::Arc::new(ai::AiState::default());
+
             let watchers = watcher::WatcherRegistry::default();
             let handle = app.handle().clone();
             for (folder_id, folder_path) in existing_folders {
@@ -46,7 +49,20 @@ pub fn run() {
                     app_data_dir.clone(),
                     folder_id,
                     std::path::PathBuf::from(folder_path),
+                    ai_state.clone(),
                 );
+            }
+
+            // Warm-load the CLIP model in the background if it was already downloaded in a
+            // previous session, so semantic search and embed-as-you-go work immediately.
+            if ai::model_manager::clip_models_ready(&app_data_dir) {
+                let ai_state = ai_state.clone();
+                let clip_dir = ai::model_manager::clip_dir(&app_data_dir);
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Ok(model) = ai::clip::ClipModel::load(&clip_dir) {
+                        *ai_state.clip.lock().unwrap() = Some(model);
+                    }
+                });
             }
 
             app.manage(AppState {
@@ -55,6 +71,7 @@ pub fn run() {
                 conn: std::sync::Mutex::new(conn),
                 watchers,
                 cancelled_jobs: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+                ai: ai_state,
             });
 
             Ok(())
@@ -76,6 +93,10 @@ pub fn run() {
             commands::media::delete_media_permanently,
             commands::media::get_places,
             commands::media::get_library_stats,
+            commands::ai::get_ai_status,
+            commands::ai::download_ai_models,
+            commands::ai::semantic_search,
+            commands::ai::backfill_embeddings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hive");
