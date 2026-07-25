@@ -57,15 +57,6 @@ pub struct MediaPage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ScanResult {
-    pub folder_id: String,
-    pub scanned: i64,
-    pub added: i64,
-    pub skipped: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct JobProgress {
     pub id: String,
     pub kind: String,
@@ -73,4 +64,30 @@ pub struct JobProgress {
     pub current: i64,
     pub total: i64,
     pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderStats {
+    pub folder: Folder,
+    pub item_count: i64,
+    pub cover_media_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaceCluster {
+    pub lat: f64,
+    pub lon: f64,
+    pub count: i64,
+    pub cover_media_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryStats {
+    pub total_items: i64,
+    pub total_bytes: i64,
+    pub favorites: i64,
+    pub trashed: i64,
 }
