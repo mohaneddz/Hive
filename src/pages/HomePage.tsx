@@ -1,167 +1,217 @@
-import { useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity, FolderOpen, Heart, ImagePlus, Sparkles } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
+import {
+  ArrowRight,
+  Clock,
+  FolderPlus,
+  Heart,
+  Images,
+  Layers,
+  MapPin,
+  Sparkles,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { MediaCard } from "@/components/media/MediaCard";
-import { MediaThumb } from "@/components/media/MediaThumb";
-import { useJobProgress } from "@/hooks/useJobProgress";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { MediaGrid } from "@/components/media/MediaGrid";
+import { StatTile } from "@/components/ui/StatTile";
+import { addWatchedFolder, getMediaPage, getOnThisDay, isTauri, scanFolder } from "@/lib/tauri";
 import { useLibraryStats } from "@/hooks/useLibraryStats";
-import { getMediaPage, isTauri, listFoldersWithStats } from "@/lib/tauri";
-import { formatBytes } from "@/utils/format";
-import type { FolderStats, MediaItem } from "@/types/media";
+import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
+import { routes } from "@/config/routes";
+import type { MediaItem } from "@/types/media";
+import { formatBytes, formatCount, yearsAgo } from "@/utils/format";
+
+const RECENT_COUNT = 12;
+const RAIL_COUNT = 8;
+
+function SectionHeader({ icon, title, subtitle, to }: { icon: React.ReactNode; title: string; subtitle: string; to?: string }) {
+  return (
+    <div className="mt-10 flex items-end justify-between gap-4">
+      <div className="flex items-center gap-3">
+        <div className="grid size-9 place-items-center rounded-xl bg-cream text-honey-deep">{icon}</div>
+        <div>
+          <h2 className="text-base font-extrabold text-ink">{title}</h2>
+          <p className="text-xs text-ink-muted">{subtitle}</p>
+        </div>
+      </div>
+      {to && (
+        <Link
+          to={to}
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-honey-deep transition hover:gap-2.5"
+        >
+          See all <ArrowRight size={14} />
+        </Link>
+      )}
+    </div>
+  );
+}
 
 export function HomePage() {
-  const stats = useLibraryStats();
-  const jobs = useJobProgress();
+  const { stats } = useLibraryStats();
   const [recent, setRecent] = useState<MediaItem[]>([]);
   const [favorites, setFavorites] = useState<MediaItem[]>([]);
-  const [latestFolder, setLatestFolder] = useState<FolderStats | null>(null);
+  const [memories, setMemories] = useState<MediaItem[]>([]);
+  const [continueViewing, setContinueViewing] = useState<MediaItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    if (!isTauri()) return;
+    setLoading(true);
+    try {
+      const [recentPage, favoritePage, onThisDay, viewedPage] = await Promise.all([
+        getMediaPage({ limit: RECENT_COUNT, offset: 0, sort: "added" }),
+        getMediaPage({ limit: RAIL_COUNT, offset: 0, favoritesOnly: true }),
+        getOnThisDay(RAIL_COUNT),
+        getMediaPage({ limit: RAIL_COUNT, offset: 0, sort: "viewed" }),
+      ]);
+      setRecent(recentPage.items);
+      setFavorites(favoritePage.items);
+      setMemories(onThisDay);
+      // "viewed" sorts NULLs last in SQLite DESC ordering, but a library with
+      // nothing opened yet would still return rows â€” filter them out here.
+      setContinueViewing(viewedPage.items.filter((item) => item.lastViewedAt));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   useEffect(() => {
     if (!isTauri()) return;
-    getMediaPage({ limit: 8, offset: 0 }).then((page) => setRecent(page.items));
-    getMediaPage({ limit: 6, offset: 0, favoritesOnly: true }).then((page) => setFavorites(page.items));
-    listFoldersWithStats().then((folders) => setLatestFolder(folders[0] ?? null));
-  }, []);
+    const unlisten = listen("media:changed", () => void load());
+    return () => {
+      void unlisten.then((dispose) => dispose());
+    };
+  }, [load]);
 
-  const activeJob = jobs.find((job) => job.status === "running");
+  const chooseFolder = async () => {
+    try {
+      const selected = await open({ directory: true, multiple: false, title: "Add a media folder" });
+      if (typeof selected !== "string") return;
+      const folder = await addWatchedFolder(selected);
+      void scanFolder(folder.id);
+      await load();
+    } catch {
+      /* No native folder picker in the web preview. */
+    }
+  };
+
+  const isEmpty = !loading && (stats?.totalItems ?? 0) === 0;
 
   return (
-    <div className="space-y-8">
-      <div>
-        <p className="eyebrow">Welcome back</p>
-        <h1 className="mt-2 text-[30px] font-extrabold tracking-[-.04em] text-ink">
-          Your library, at a glance.
-        </h1>
-      </div>
+    <div>
+      <GalleryPageHeader
+        eyebrow="Home"
+        title="Welcome back."
+        description={
+          stats
+            ? `${formatCount(stats.totalItems, "item")} Â· ${formatBytes(stats.totalBytes)} across ${formatCount(stats.folderCount, "folder")}.`
+            : "Loading your libraryâ€¦"
+        }
+        action={
+          <Button icon={<FolderPlus size={16} />} onClick={chooseFolder}>
+            Add folder
+          </Button>
+        }
+      />
 
-      {latestFolder ? (
-        <Card className="relative overflow-hidden p-0">
-          <div className="grid h-[220px] grid-cols-[1.1fr_1.4fr] items-stretch">
-            <div className="flex flex-col justify-between p-7">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[.13em] text-ink-muted">
-                  Continue where you left off
-                </p>
-                <div className="mt-4 flex items-center gap-2 text-ink">
-                  <FolderOpen size={16} className="shrink-0 text-honey-deep" />
-                  <h2 className="truncate text-lg font-extrabold">{latestFolder.folder.name}</h2>
-                </div>
-                <p className="mt-1 truncate text-xs text-ink-muted" title={latestFolder.folder.path}>
-                  {latestFolder.itemCount} item{latestFolder.itemCount === 1 ? "" : "s"} · {latestFolder.folder.path}
-                </p>
-              </div>
-              <Link to={`/gallery?folder=${latestFolder.folder.id}`}>
-                <Button className="mt-6 w-fit">Open collection</Button>
-              </Link>
-            </div>
-            <div className="relative h-full w-full overflow-hidden bg-shell">
-              {latestFolder.coverMediaId && (
-                <MediaThumb
-                  mediaId={latestFolder.coverMediaId}
-                  variant="md"
-                  alt={latestFolder.folder.name}
-                  className="absolute inset-0 size-full object-cover"
-                />
-              )}
-            </div>
-          </div>
-        </Card>
-      ) : (
-        <Card className="flex flex-col items-center gap-3 p-12 text-center">
-          <div className="grid size-14 place-items-center rounded-2xl bg-cream text-honey-deep">
-            <ImagePlus size={22} />
-          </div>
-          <p className="text-sm font-extrabold text-ink">Nothing indexed yet</p>
-          <p className="text-xs text-ink-muted">Add a folder from the Gallery page to start building your library.</p>
-          <Link to="/gallery">
-            <Button className="mt-1">Go to Gallery</Button>
-          </Link>
-        </Card>
+      {isEmpty && (
+        <EmptyState
+          icon={<Images size={22} />}
+          title="Your library is empty"
+          description="Point Hive at a folder of photos or videos. Everything is indexed locally â€” nothing ever leaves your machine."
+          action={
+            <Button icon={<FolderPlus size={16} />} onClick={chooseFolder}>
+              Add folder
+            </Button>
+          }
+        />
       )}
 
-      <section>
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-extrabold text-ink">Recent photos</h2>
-          <Link to="/gallery" className="text-xs font-bold text-honey-deep hover:underline">
-            View all
-          </Link>
-        </div>
-        {recent.length > 0 ? (
-          <div className="mt-4 grid grid-cols-4 gap-4">
-            {recent.map((item) => (
-              <MediaCard key={item.id} item={item} />
-            ))}
+      {stats && !isEmpty && (
+        <>
+          <div className="mt-7 grid grid-cols-4 gap-4">
+            <StatTile
+              icon={<Images size={17} />}
+              label="Photos & videos"
+              value={stats.totalItems.toLocaleString()}
+              hint={`${stats.imageCount.toLocaleString()} photos Â· ${stats.videoCount.toLocaleString()} videos`}
+              to={routes.gallery.path}
+            />
+            <StatTile
+              icon={<Heart size={17} />}
+              label="Favorites"
+              value={stats.favorites.toLocaleString()}
+              to={`${routes.collections.path}?view=favorites`}
+            />
+            <StatTile
+              icon={<Layers size={17} />}
+              label="Albums"
+              value={stats.albumCount.toLocaleString()}
+              to={routes.collections.path}
+            />
+            <StatTile
+              icon={<MapPin size={17} />}
+              label="Geotagged"
+              value={stats.placeCount.toLocaleString()}
+              hint="Photos carrying GPS"
+              to={routes.places.path}
+            />
           </div>
-        ) : (
-          <p className="mt-3 text-xs text-ink-muted">Nothing indexed yet.</p>
-        )}
-      </section>
 
-      <div className="grid grid-cols-2 gap-5">
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Heart size={15} className="text-honey-deep" />
-              <h2 className="text-sm font-extrabold text-ink">Favorites</h2>
-            </div>
-            <Link to="/search" className="text-xs font-bold text-honey-deep hover:underline">
-              View all
-            </Link>
-          </div>
-          {favorites.length > 0 ? (
-            <div className="mt-4 grid grid-cols-3 gap-2">
-              {favorites.map((item) => (
-                <Link key={item.id} to={`/media/${item.id}`} className="artwork-frame block aspect-square">
-                  <MediaThumb mediaId={item.id} alt={item.filename} className="size-full object-cover" />
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-4 text-xs text-ink-muted">Photos you favorite will show up here.</p>
+          {memories.length > 0 && (
+            <>
+              <SectionHeader
+                icon={<Sparkles size={17} />}
+                title="On this day"
+                subtitle={
+                  yearsAgo(memories[0].takenAt)
+                    ? `From ${yearsAgo(memories[0].takenAt)} year${yearsAgo(memories[0].takenAt) === 1 ? "" : "s"} ago and earlier`
+                    : "From earlier years"
+                }
+              />
+              <MediaGrid items={memories} className="mt-5" />
+            </>
           )}
-        </Card>
 
-        <Card className="p-6">
-          <div className="flex items-center gap-2">
-            <Activity size={15} className="text-honey-deep" />
-            <h2 className="text-sm font-extrabold text-ink">Library activity</h2>
-          </div>
-          <div className="mt-4 space-y-3 text-xs">
-            {activeJob ? (
-              <div className="flex items-center justify-between rounded-xl bg-honey/10 px-3 py-2 font-bold text-honey-deep">
-                <span>Indexing…</span>
-                <span>
-                  {activeJob.current}/{activeJob.total}
-                </span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 rounded-xl bg-canvas px-3 py-2 text-ink-muted">
-                <Sparkles size={13} />
-                <span>Up to date</span>
-              </div>
-            )}
-            <div className="flex items-center justify-between text-ink-muted">
-              <span>Items indexed</span>
-              <span className="font-bold text-ink">{stats?.totalItems.toLocaleString() ?? "—"}</span>
-            </div>
-            <div className="flex items-center justify-between text-ink-muted">
-              <span>On disk</span>
-              <span className="font-bold text-ink">{stats ? formatBytes(stats.totalBytes) : "—"}</span>
-            </div>
-            <div className="flex items-center justify-between text-ink-muted">
-              <span>Favorites</span>
-              <span className="font-bold text-ink">{stats?.favorites.toLocaleString() ?? "—"}</span>
-            </div>
-            <div className="flex items-center justify-between text-ink-muted">
-              <span>In trash</span>
-              <span className="font-bold text-ink">{stats?.trashed.toLocaleString() ?? "—"}</span>
-            </div>
-          </div>
-        </Card>
-      </div>
+          {continueViewing.length > 0 && (
+            <>
+              <SectionHeader
+                icon={<Clock size={17} />}
+                title="Continue where you left off"
+                subtitle="The last things you opened"
+              />
+              <MediaGrid items={continueViewing} className="mt-5" />
+            </>
+          )}
+
+          {favorites.length > 0 && (
+            <>
+              <SectionHeader
+                icon={<Heart size={17} />}
+                title="Favorites"
+                subtitle="Everything you starred"
+                to={`${routes.collections.path}?view=favorites`}
+              />
+              <MediaGrid items={favorites} className="mt-5" />
+            </>
+          )}
+
+          <SectionHeader
+            icon={<Images size={17} />}
+            title="Recently added"
+            subtitle="The newest arrivals in your library"
+            to={routes.gallery.path}
+          />
+          <MediaGrid items={recent} className="mt-5" />
+        </>
+      )}
     </div>
   );
 }
