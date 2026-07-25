@@ -36,6 +36,10 @@ pub fn run() {
 
             let conn = db::open(&db_path)?;
 
+            // Trim the thumbnail cache to whatever ceiling the user set, before
+            // anything starts adding to it again.
+            let _ = commands::preferences::enforce_cache_limit(&conn, &app_data_dir);
+
             let existing_folders: Vec<(String, String)> = {
                 let mut stmt = conn.prepare(
                     "SELECT id, path FROM folders WHERE is_watched = 1",
@@ -180,6 +184,11 @@ pub fn run() {
             commands::geocode::set_geocoding_enabled,
             commands::geocode::get_cached_place_names,
             commands::geocode::lookup_place_names,
+            commands::preferences::get_cache_limit_mb,
+            commands::preferences::set_cache_limit_mb,
+            commands::preferences::apply_cache_limit,
+            commands::preferences::get_shortcut_overrides,
+            commands::preferences::set_shortcut_overrides,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hive");
