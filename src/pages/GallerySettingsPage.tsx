@@ -1,6 +1,6 @@
-import { Download, FolderOpen, Image, ImageOff, Monitor, Moon, Palette, Pause, Play, Plus, RefreshCw, ScanText, Sparkles, Sun, Trash2, Users } from "lucide-react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { useState } from "react";
+import { Database, Download, FolderOpen, HardDrive, Image, ImageOff, Keyboard, Monitor, Moon, Palette, Pause, Play, Plus, RefreshCw, ScanText, Shield, Sparkles, Sun, Trash2, Users } from "lucide-react";
+import { confirm, open } from "@tauri-apps/plugin-dialog";
+import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -14,13 +14,32 @@ import {
   backfillOcr,
   backfillThumbnails,
   downloadAiModels,
+  clearThumbnailCache,
   downloadFaceModels,
   downloadOcrModels,
+  getStorageStats,
+  isTauri,
   setFolderWatched,
 } from "@/lib/tauri";
+import { useLibraryStats } from "@/hooks/useLibraryStats";
+import type { StorageStats } from "@/types/media";
+import { formatCount } from "@/utils/format";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import { formatBytes } from "@/utils/format";
 import { cn } from "@/utils/cn";
+
+const SHORTCUTS: [string, string][] = [
+  ["← →", "Previous / next photo"],
+  ["I", "Toggle the details drawer"],
+  ["E", "Open the editor"],
+  ["R", "Rotate the view"],
+  ["+ / −", "Zoom in and out"],
+  ["0", "Reset zoom"],
+  ["Space", "Play or pause the slideshow"],
+  ["F", "Fullscreen"],
+  ["Del", "Move to trash"],
+  ["Esc", "Close the viewer"],
+];
 
 const choices: { value: Theme; label: string; icon: typeof Sun; caption: string }[] = [
   { value: "light", label: "Light", icon: Sun, caption: "Warm gallery walls" },
@@ -39,6 +58,35 @@ export function GallerySettingsPage() {
   const [faceDownloading, setFaceDownloading] = useState(false);
   const [faceBackfilling, setFaceBackfilling] = useState(false);
   const [thumbsRebuilding, setThumbsRebuilding] = useState(false);
+  const [storage, setStorage] = useState<StorageStats | null>(null);
+  const [cacheBusy, setCacheBusy] = useState(false);
+  const { stats } = useLibraryStats();
+
+  const loadStorage = useCallback(async () => {
+    if (!isTauri()) return;
+    setStorage(await getStorageStats());
+  }, []);
+
+  useEffect(() => {
+    void loadStorage();
+  }, [loadStorage]);
+
+  const clearCache = async () => {
+    const confirmed = await confirm(
+      "Delete every generated thumbnail? They are rebuilt on the next scan — this only costs time, never photos.",
+      { title: "Clear thumbnail cache", kind: "warning" },
+    );
+    if (!confirmed) return;
+
+    setCacheBusy(true);
+    try {
+      const freed = await clearThumbnailCache();
+      await confirm(`${formatBytes(freed)} freed.`, { title: "Cache cleared", kind: "info" });
+      await loadStorage();
+    } finally {
+      setCacheBusy(false);
+    }
+  };
 
   const downloadJob = jobs.find((j) => j.kind === "download_models" && j.status === "running");
   const backfillJob = jobs.find((j) => j.kind === "embed_backfill" && j.status === "running");
@@ -417,6 +465,129 @@ export function GallerySettingsPage() {
             <Monitor size={16} />
             <span>Hive uses your saved preference every time it opens.</span>
           </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream text-honey-deep">
+              <HardDrive size={19} />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-ink">Storage and cache</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                What Hive keeps on disk, and what is safe to reclaim.
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 grid grid-cols-3 gap-3">
+            {[
+              {
+                label: "Originals",
+                value: storage ? formatBytes(storage.originalBytes) : "—",
+                hint: "Your own files",
+              },
+              {
+                label: "Thumbnails",
+                value: storage ? formatBytes(storage.thumbnailBytes) : "—",
+                hint: "Created by Hive",
+              },
+              {
+                label: "Database",
+                value: storage ? formatBytes(storage.databaseBytes) : "—",
+                hint: "Index and metadata",
+              },
+            ].map((entry) => (
+              <div key={entry.label} className="rounded-2xl border border-ink/[.08] bg-canvas p-4">
+                <p className="text-lg font-extrabold leading-none text-ink">{entry.value}</p>
+                <p className="mt-1.5 text-[11px] font-bold text-ink-muted">{entry.label}</p>
+                <p className="text-[10px] text-ink-muted">{entry.hint}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={clearCache} disabled={cacheBusy}>
+              Clear thumbnail cache
+            </Button>
+            <Button variant="secondary" icon={<RefreshCw size={14} />} onClick={loadStorage}>
+              Refresh
+            </Button>
+          </div>
+          <p className="mt-3 text-[11px] text-ink-muted">
+            Only thumbnails and the database are storage Hive created. Clearing the cache costs
+            time on the next scan, never photos.
+          </p>
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream text-honey-deep">
+              <Database size={19} />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-ink">Library</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">What Hive currently knows about.</p>
+            </div>
+          </div>
+          <div className="mt-5 flex flex-wrap gap-x-8 gap-y-3 text-xs">
+            {[
+              ["Items indexed", stats ? formatCount(stats.totalItems, "item") : "—"],
+              ["Photos", stats ? stats.imageCount.toLocaleString() : "—"],
+              ["Videos", stats ? stats.videoCount.toLocaleString() : "—"],
+              ["Albums", stats ? stats.albumCount.toLocaleString() : "—"],
+              ["Geotagged", stats ? stats.placeCount.toLocaleString() : "—"],
+              ["Watched folders", formatCount(folders.length, "folder")],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <p className="text-[11px] text-ink-muted">{label}</p>
+                <p className="font-extrabold text-ink">{value}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream text-honey-deep">
+              <Keyboard size={19} />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-ink">Shortcuts</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">What the keyboard does today.</p>
+            </div>
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            {SHORTCUTS.map(([keys, description]) => (
+              <div
+                key={keys}
+                className="flex items-center gap-3 rounded-2xl border border-ink/[.08] bg-canvas p-3"
+              >
+                <kbd className="shrink-0 rounded-lg border border-ink/15 bg-panel px-2.5 py-1 text-[11px] font-extrabold text-ink">
+                  {keys}
+                </kbd>
+                <span className="text-[11px] text-ink-muted">{description}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream text-honey-deep">
+              <Shield size={19} />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-ink">Privacy</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">Where your library lives.</p>
+            </div>
+          </div>
+          <p className="mt-5 text-xs leading-relaxed text-ink-muted">
+            Hive is local-first. Your photos are read from the folders you choose and never copied
+            anywhere else. The index, thumbnails, AI models and preferences all live in your own
+            user profile, and recognition runs on this machine — no image is ever uploaded. The two
+            outbound actions in the whole app are downloading the AI models once, and the “Open in
+            maps” button on a place, which hands a pair of coordinates to your browser only when you
+            click it.
+          </p>
         </Card>
       </div>
     </div>
