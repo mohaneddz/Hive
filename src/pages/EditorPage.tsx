@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
@@ -13,32 +13,40 @@ import {
   Save,
   Sliders,
   Tag,
+  Wand2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
+import { EditorCanvas } from "@/components/editor/EditorCanvas";
 import { SaveEditDialog } from "@/components/editor/SaveEditDialog";
+import { applyEdits, getMediaDetail, readMediaUrl, updateMediaMetadata } from "@/lib/tauri";
 import {
-  applyEdits,
-  getMediaDetail,
-  readMediaUrl,
-  updateMediaMetadata,
-} from "@/lib/tauri";
-import { NEUTRAL_EDIT_OPS, type EditOps, type MediaItem, type SaveMode } from "@/types/media";
+  FILTER_PRESETS,
+  NEUTRAL_EDIT_OPS,
+  type CropRect,
+  type EditOps,
+  type MediaItem,
+  type SaveMode,
+} from "@/types/media";
 import { cn } from "@/utils/cn";
 import { formatDate } from "@/utils/format";
 
-type Tab = "adjust" | "crop" | "metadata";
+type Tab = "filters" | "adjust" | "crop" | "metadata";
 
 const TABS: { key: Tab; label: string; icon: typeof Sliders }[] = [
+  { key: "filters", label: "Filters", icon: Wand2 },
   { key: "adjust", label: "Adjust", icon: Sliders },
   { key: "crop", label: "Frame", icon: Crop },
   { key: "metadata", label: "Details", icon: Tag },
 ];
 
-const SLIDERS: { key: "brightness" | "contrast" | "saturation"; label: string }[] = [
-  { key: "brightness", label: "Brightness" },
-  { key: "contrast", label: "Contrast" },
-  { key: "saturation", label: "Saturation" },
+const SLIDERS: { key: keyof EditOps; label: string; min: number; max: number; neutral: number }[] = [
+  { key: "brightness", label: "Brightness", min: 0, max: 2, neutral: 1 },
+  { key: "contrast", label: "Contrast", min: 0, max: 2, neutral: 1 },
+  { key: "saturation", label: "Saturation", min: 0, max: 2, neutral: 1 },
+  { key: "temperature", label: "Temperature", min: -1, max: 1, neutral: 0 },
+  { key: "grayscale", label: "Black & white", min: 0, max: 1, neutral: 0 },
+  { key: "sepia", label: "Sepia", min: 0, max: 1, neutral: 0 },
 ];
 
 const CROP_PRESETS: { label: string; ratio: number | null }[] = [
@@ -49,8 +57,8 @@ const CROP_PRESETS: { label: string; ratio: number | null }[] = [
   { label: "16:9", ratio: 16 / 9 },
 ];
 
-/** The crop rectangle a preset produces, centred and as large as it fits. */
-function centredCrop(ratio: number | null, frameRatio: number) {
+/** The crop a preset produces: centred, and as large as the ratio allows. */
+function centredCrop(ratio: number | null, frameRatio: number): CropRect | null {
   if (ratio === null) return null;
   const relative = ratio / frameRatio;
   return relative >= 1
@@ -59,14 +67,8 @@ function centredCrop(ratio: number | null, frameRatio: number) {
 }
 
 function isNeutral(ops: EditOps): boolean {
-  return (
-    ops.rotation === 0 &&
-    !ops.flipHorizontal &&
-    !ops.flipVertical &&
-    ops.crop === null &&
-    ops.brightness === 1 &&
-    ops.contrast === 1 &&
-    ops.saturation === 1
+  return (Object.keys(NEUTRAL_EDIT_OPS) as (keyof EditOps)[]).every(
+    (key) => JSON.stringify(ops[key]) === JSON.stringify(NEUTRAL_EDIT_OPS[key]),
   );
 }
 
@@ -75,9 +77,9 @@ export function EditorPage() {
   const navigate = useNavigate();
 
   const [item, setItem] = useState<MediaItem | null>(null);
-  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [ops, setOps] = useState<EditOps>(NEUTRAL_EDIT_OPS);
-  const [tab, setTab] = useState<Tab>("adjust");
+  const [tab, setTab] = useState<Tab>("filters");
   const [askingSave, setAskingSave] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -86,7 +88,9 @@ export function EditorPage() {
   const [takenAtOverride, setTakenAtOverride] = useState("");
   const [savingMetadata, setSavingMetadata] = useState(false);
 
-  const frameRef = useRef<HTMLDivElement>(null);
+  // Crop dragging, in fractions of the displayed frame.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -101,8 +105,8 @@ export function EditorPage() {
       setTakenAtOverride(detail.takenAtOverride?.slice(0, 10) ?? "");
     });
 
-    // The 800px render is what the editor works against: full-size originals can
-    // be 50 megapixels, and a preview does not need them.
+    // The 800px render is what the editor works against: a 50-megapixel original
+    // would cost a hundred times more for a preview you cannot see the difference in.
     void readMediaUrl(id, "md")
       .then((url) => {
         if (cancelled) {
@@ -110,7 +114,11 @@ export function EditorPage() {
           return;
         }
         objectUrl = url;
-        setSourceUrl(url);
+        const element = new Image();
+        element.onload = () => {
+          if (!cancelled) setImage(element);
+        };
+        element.src = url;
       })
       .catch(() => {});
 
@@ -120,38 +128,65 @@ export function EditorPage() {
     };
   }, [id]);
 
+  // Rotating re-frames the picture, so a crop drawn on the old orientation no
+  // longer means what it did.
   const rotate = (degrees: number) =>
-    // Rotating re-frames the picture, so any crop drawn on the old orientation
-    // no longer means what it did.
     setOps((prev) => ({ ...prev, rotation: (prev.rotation + degrees + 360) % 360, crop: null }));
 
   const quarterTurned = ops.rotation === 90 || ops.rotation === 270;
+  const naturalRatio = image ? image.naturalWidth / image.naturalHeight : 1;
+  const frameRatio = quarterTurned ? 1 / naturalRatio : naturalRatio;
 
-  const applyPreset = useCallback(
-    (ratio: number | null) => {
-      const frame = frameRef.current;
-      const naturalRatio = item?.width && item?.height ? item.width / item.height : 1;
-      const frameRatio = quarterTurned ? 1 / naturalRatio : naturalRatio;
-      void frame;
-      setOps((prev) => ({ ...prev, crop: centredCrop(ratio, frameRatio) }));
-    },
-    [item, quarterTurned],
-  );
+  const applyPreset = (ratio: number | null) =>
+    setOps((prev) => ({ ...prev, crop: centredCrop(ratio, frameRatio) }));
 
-  /** Mirrors `apply_ops` in Rust: rotate → flip → crop → colour. */
-  const previewStyle = useMemo(
-    () => ({
-      transform: [
-        `rotate(${ops.rotation}deg)`,
-        ops.flipHorizontal ? "scaleX(-1)" : "",
-        ops.flipVertical ? "scaleY(-1)" : "",
-      ]
-        .filter(Boolean)
-        .join(" "),
-      filter: `brightness(${ops.brightness}) contrast(${ops.contrast}) saturate(${ops.saturation})`,
-    }),
-    [ops],
-  );
+  /* ------------------------------------------------------- crop by mouse -- */
+
+  const pointFromEvent = useCallback((event: React.MouseEvent) => {
+    const stage = stageRef.current;
+    if (!stage) return null;
+    const bounds = stage.getBoundingClientRect();
+    return {
+      x: Math.min(1, Math.max(0, (event.clientX - bounds.left) / bounds.width)),
+      y: Math.min(1, Math.max(0, (event.clientY - bounds.top) / bounds.height)),
+    };
+  }, []);
+
+  const beginCrop = (event: React.MouseEvent) => {
+    if (tab !== "crop") return;
+    const point = pointFromEvent(event);
+    if (!point) return;
+    setDragStart(point);
+    setOps((prev) => ({ ...prev, crop: { x: point.x, y: point.y, width: 0, height: 0 } }));
+  };
+
+  const extendCrop = (event: React.MouseEvent) => {
+    if (!dragStart) return;
+    const point = pointFromEvent(event);
+    if (!point) return;
+    setOps((prev) => ({
+      ...prev,
+      crop: {
+        x: Math.min(dragStart.x, point.x),
+        y: Math.min(dragStart.y, point.y),
+        width: Math.abs(point.x - dragStart.x),
+        height: Math.abs(point.y - dragStart.y),
+      },
+    }));
+  };
+
+  const endCrop = () => {
+    if (!dragStart) return;
+    setDragStart(null);
+    // A stray click should not leave a sliver of a crop behind.
+    setOps((prev) =>
+      prev.crop && (prev.crop.width < 0.02 || prev.crop.height < 0.02)
+        ? { ...prev, crop: null }
+        : prev,
+    );
+  };
+
+  /* ------------------------------------------------------------- saving -- */
 
   const save = async (mode: SaveMode) => {
     if (!id) return;
@@ -171,13 +206,14 @@ export function EditorPage() {
     if (!id) return;
     setSavingMetadata(true);
     try {
-      const updated = await updateMediaMetadata(
-        id,
-        title || null,
-        description || null,
-        takenAtOverride ? new Date(takenAtOverride).toISOString() : null,
+      setItem(
+        await updateMediaMetadata(
+          id,
+          title || null,
+          description || null,
+          takenAtOverride ? new Date(takenAtOverride).toISOString() : null,
+        ),
       );
-      setItem(updated);
     } finally {
       setSavingMetadata(false);
     }
@@ -212,33 +248,39 @@ export function EditorPage() {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <div ref={frameRef} className="relative grid flex-1 place-items-center overflow-hidden p-8">
-          {sourceUrl && (
-            <div className="relative">
-              <img
-                src={sourceUrl}
-                alt={item.filename}
-                style={previewStyle}
-                className="max-h-[calc(100vh-220px)] max-w-full object-contain transition-[filter,transform] duration-150"
+        <div className="relative grid flex-1 place-items-center overflow-hidden p-8">
+          <div
+            ref={stageRef}
+            onMouseDown={beginCrop}
+            onMouseMove={extendCrop}
+            onMouseUp={endCrop}
+            onMouseLeave={endCrop}
+            className={cn("relative", tab === "crop" && "cursor-crosshair")}
+          >
+            <EditorCanvas
+              image={image}
+              ops={{ ...ops, crop: null }}
+              className="max-h-[calc(100vh-220px)] max-w-full select-none object-contain"
+            />
+            {ops.crop && ops.crop.width > 0 && (
+              <div
+                className="pointer-events-none absolute border-2 border-honey"
+                style={{
+                  left: `${ops.crop.x * 100}%`,
+                  top: `${ops.crop.y * 100}%`,
+                  width: `${ops.crop.width * 100}%`,
+                  height: `${ops.crop.height * 100}%`,
+                  // Everything outside the crop is dimmed rather than hidden, so
+                  // you can still see what you are cutting away.
+                  boxShadow: "0 0 0 9999px rgba(0,0,0,0.6)",
+                }}
               />
-              {ops.crop && (
-                <>
-                  {/* Everything outside the crop is dimmed rather than hidden, so
-                      you can still see what you are cutting away. */}
-                  <div className="pointer-events-none absolute inset-0 bg-black/55" />
-                  <div
-                    className="pointer-events-none absolute border-2 border-honey shadow-[0_0_0_9999px_rgba(0,0,0,0)]"
-                    style={{
-                      left: `${ops.crop.x * 100}%`,
-                      top: `${ops.crop.y * 100}%`,
-                      width: `${ops.crop.width * 100}%`,
-                      height: `${ops.crop.height * 100}%`,
-                      boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)",
-                    }}
-                  />
-                </>
-              )}
-            </div>
+            )}
+          </div>
+          {tab === "crop" && !ops.crop && (
+            <p className="pointer-events-none absolute bottom-6 rounded-full bg-black/60 px-4 py-2 text-[11px] font-bold text-white/80">
+              Drag across the photo to draw a crop
+            </p>
           )}
         </div>
 
@@ -258,6 +300,42 @@ export function EditorPage() {
               </button>
             ))}
           </div>
+
+          {/* ---------------------------------------------------- filters -- */}
+          {tab === "filters" && (
+            <div className="p-5">
+              <p className="mb-3 text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-muted">
+                Presets
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {FILTER_PRESETS.map((preset) => (
+                  <button
+                    key={preset.name}
+                    onClick={() =>
+                      setOps((prev) => ({
+                        // A preset is a look, not a reset: framing is preserved.
+                        ...prev,
+                        brightness: 1,
+                        contrast: 1,
+                        saturation: 1,
+                        grayscale: 0,
+                        sepia: 0,
+                        temperature: 0,
+                        ...preset.ops,
+                      }))
+                    }
+                    className="rounded-xl border border-ink/[.1] bg-canvas px-3 py-2.5 text-[11px] font-bold text-ink transition hover:border-honey/50 hover:bg-cream/40"
+                  >
+                    {preset.name}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-4 text-[10px] leading-relaxed text-ink-muted">
+                A preset only sets the colour sliders — your rotation and crop stay as they are.
+                Fine-tune anything afterwards in the Adjust tab.
+              </p>
+            </div>
+          )}
 
           {/* ----------------------------------------------------- adjust -- */}
           {tab === "adjust" && (
@@ -308,28 +386,35 @@ export function EditorPage() {
                 <p className="text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-muted">
                   Light and colour
                 </p>
-                {SLIDERS.map((slider) => (
-                  <label key={slider.key} className="block">
-                    <span className="mb-1.5 flex items-center justify-between text-[11px] font-bold">
-                      <span className="text-ink">{slider.label}</span>
-                      <span className="text-ink-muted">{Math.round(ops[slider.key] * 100)}%</span>
-                    </span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={2}
-                      step={0.01}
-                      value={ops[slider.key]}
-                      onChange={(event) =>
-                        setOps((prev) => ({ ...prev, [slider.key]: Number(event.target.value) }))
-                      }
-                      onDoubleClick={() => setOps((prev) => ({ ...prev, [slider.key]: 1 }))}
-                      className="w-full accent-[var(--color-honey)]"
-                    />
-                  </label>
-                ))}
+                {SLIDERS.map((slider) => {
+                  const value = ops[slider.key] as number;
+                  return (
+                    <label key={slider.key} className="block">
+                      <span className="mb-1.5 flex items-center justify-between text-[11px] font-bold">
+                        <span className="text-ink">{slider.label}</span>
+                        <span className="text-ink-muted">
+                          {slider.neutral === 0 ? value.toFixed(2) : `${Math.round(value * 100)}%`}
+                        </span>
+                      </span>
+                      <input
+                        type="range"
+                        min={slider.min}
+                        max={slider.max}
+                        step={0.01}
+                        value={value}
+                        onChange={(event) =>
+                          setOps((prev) => ({ ...prev, [slider.key]: Number(event.target.value) }))
+                        }
+                        onDoubleClick={() =>
+                          setOps((prev) => ({ ...prev, [slider.key]: slider.neutral }))
+                        }
+                        className="w-full accent-[var(--color-honey)]"
+                      />
+                    </label>
+                  );
+                })}
                 <p className="text-[10px] text-ink-muted">
-                  Double-click a slider to send it back to 100%.
+                  Double-click a slider to send it back to neutral.
                 </p>
               </div>
             </div>
@@ -355,7 +440,7 @@ export function EditorPage() {
                 </div>
               </div>
 
-              {ops.crop && (
+              {ops.crop ? (
                 <div className="space-y-3.5">
                   <p className="text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-muted">
                     Fine tune
@@ -399,11 +484,10 @@ export function EditorPage() {
                     Clear the crop
                   </button>
                 </div>
-              )}
-
-              {!ops.crop && (
-                <p className="rounded-2xl border border-dashed border-ink/[.14] p-4 text-[11px] text-ink-muted">
-                  Pick a ratio to start cropping. The dimmed area is what gets cut away.
+              ) : (
+                <p className="rounded-2xl border border-dashed border-ink/[.14] p-4 text-[11px] leading-relaxed text-ink-muted">
+                  Drag across the photo to draw a crop, or pick a ratio above. The dimmed area is
+                  what gets cut away.
                 </p>
               )}
             </div>
