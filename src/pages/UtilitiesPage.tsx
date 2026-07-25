@@ -1,12 +1,12 @@
-import { AlertTriangle, Archive, Copy, Download, HardDrive, Scissors } from "lucide-react";
+import { AlertTriangle, Archive, Download, HardDrive, Scissors } from "lucide-react";
 
 import { Card } from "@/components/ui/Card";
+import { DuplicatesPanel } from "@/components/duplicates/DuplicatesPanel";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import { useLibraryStats } from "@/hooks/useLibraryStats";
 import { formatBytes } from "@/utils/format";
 
 const upcoming = [
-  { icon: Copy, label: "Duplicate detection", description: "Find near-identical photos by perceptual hash and embedding similarity." },
   { icon: Scissors, label: "Compressors", description: "Shrink large photos and videos without losing much quality." },
   { icon: Archive, label: "Batch tools", description: "Rename, tag, or move many files at once." },
   { icon: Download, label: "Export", description: "Export albums or selections to another folder or drive." },
@@ -38,6 +38,8 @@ export function UtilitiesPage() {
           </p>
         </div>
       </Card>
+
+      <DuplicatesPanel />
 
       <h2 className="mt-8 text-sm font-extrabold text-ink">Coming soon</h2>
       <div className="mt-4 grid grid-cols-3 gap-4">
