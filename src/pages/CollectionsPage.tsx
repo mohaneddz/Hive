@@ -4,13 +4,18 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   Archive,
   ArrowLeft,
+  CalendarRange,
   EyeOff,
   Heart,
   Layers,
   Pencil,
+  Plane,
   Plus,
+  Sparkle,
   Trash2,
 } from "lucide-react";
+
+import { EventsView, TimelineView } from "@/components/collections/AutoGroups";
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -53,6 +58,35 @@ type SmartViewKey = keyof typeof SMART_VIEWS;
 
 function isSmartView(value: string | null): value is SmartViewKey {
   return value !== null && value in SMART_VIEWS;
+}
+
+/**
+ * Groupings Hive works out on its own. Despite sitting under "AI" in the task
+ * split, none of them uses a model: they are dates, gaps between dates, and
+ * distances between coordinates.
+ */
+const AUTO_VIEWS = {
+  timeline: {
+    label: "Timeline",
+    icon: CalendarRange,
+    description: "Your library by year, month or day.",
+  },
+  events: {
+    label: "Events",
+    icon: Sparkle,
+    description: "Bursts of photos with a quiet gap on either side.",
+  },
+  trips: {
+    label: "Trips",
+    icon: Plane,
+    description: "Runs of photos taken away from home, for at least a night.",
+  },
+};
+
+type AutoViewKey = keyof typeof AUTO_VIEWS;
+
+function isAutoView(value: string | null): value is AutoViewKey {
+  return value !== null && value in AUTO_VIEWS;
 }
 
 export function CollectionsPage() {
@@ -138,6 +172,30 @@ export function CollectionsPage() {
     await deleteAlbum(album.id);
     setAlbums((prev) => prev.filter((entry) => entry.id !== album.id));
   };
+
+  /* ------------------------------------------- one automatic grouping open -- */
+
+  if (isAutoView(view)) {
+    const config = AUTO_VIEWS[view];
+    return (
+      <div>
+        <button
+          onClick={() => setSearchParams({})}
+          className="mb-5 inline-flex items-center gap-1.5 text-xs font-bold text-ink-muted transition hover:text-ink"
+        >
+          <ArrowLeft size={14} /> All collections
+        </button>
+        <GalleryPageHeader
+          eyebrow="Collections"
+          title={`${config.label}.`}
+          description={config.description}
+        />
+        <div className="mt-7">
+          {view === "timeline" ? <TimelineView /> : <EventsView trips={view === "trips"} />}
+        </div>
+      </div>
+    );
+  }
 
   /* ------------------------------------------------- one smart view opened -- */
 
@@ -253,6 +311,41 @@ export function CollectionsPage() {
             <p className="mt-1 text-[11px] font-bold text-ink-muted">Trash</p>
           </div>
         </Link>
+      </div>
+
+      <div className="mt-10 flex items-center gap-3">
+        <div className="grid size-9 place-items-center rounded-xl bg-cream text-honey-deep">
+          <Sparkle size={17} />
+        </div>
+        <div>
+          <h2 className="text-base font-extrabold text-ink">Grouped automatically</h2>
+          <p className="text-xs text-ink-muted">
+            Worked out from dates and coordinates alone — no model involved
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-4">
+        {(Object.keys(AUTO_VIEWS) as AutoViewKey[]).map((key) => {
+          const config = AUTO_VIEWS[key];
+          return (
+            <button
+              key={key}
+              onClick={() => setSearchParams({ view: key })}
+              className="flex items-start gap-3.5 rounded-[18px] border border-ink/[.07] bg-panel p-4 text-left shadow-[0_12px_40px_rgba(75,52,10,.055)] transition hover:-translate-y-px hover:border-honey/40"
+            >
+              <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-cream text-honey-deep">
+                <config.icon size={17} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-extrabold text-ink">{config.label}</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-ink-muted">
+                  {config.description}
+                </p>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       <div className="mt-10 flex items-center gap-3">
