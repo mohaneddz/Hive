@@ -21,7 +21,11 @@ import {
   Grid,
   Check,
   Sparkles,
+  FolderPlus,
+  SlidersHorizontal,
 } from "lucide-react";
+
+import { AddToAlbumDialog } from "@/components/media/AddToAlbumDialog";
 
 import { MediaThumb } from "@/components/media/MediaThumb";
 import { MediaViewerContextMenu } from "@/components/media/MediaViewerContextMenu";
@@ -59,6 +63,7 @@ export function ViewerPage() {
 
   // Right-click context menu
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [albumDialog, setAlbumDialog] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -130,6 +135,9 @@ export function ViewerPage() {
   // Keyboard Shortcuts
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // The album picker owns the keyboard while it is open.
+      if (albumDialog) return;
+      if (event.key.toLowerCase() === "e" && id) navigate(`/media/${id}/edit`);
       if (event.key === "ArrowLeft") goTo(prevItem);
       if (event.key === "ArrowRight") goTo(nextItem);
       if (event.key === "Escape") {
@@ -151,7 +159,7 @@ export function ViewerPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goTo, prevItem, nextItem, navigate, isInfoOpen, contextMenu]);
+  }, [goTo, prevItem, nextItem, navigate, isInfoOpen, contextMenu, albumDialog, id]);
 
   // Fullscreen toggle
   const toggleFullscreen = () => {
@@ -369,6 +377,26 @@ export function ViewerPage() {
 
         {/* Right: Actions */}
         <div className="flex items-center gap-1.5">
+          {item.mediaType === "image" && (
+            <button
+              onClick={() => navigate(`/media/${item.id}/edit`)}
+              className="rounded-xl border border-border/30 bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
+              title="Edit (E)"
+              aria-label="Edit photo"
+            >
+              <SlidersHorizontal size={17} />
+            </button>
+          )}
+
+          <button
+            onClick={() => setAlbumDialog(true)}
+            className="rounded-xl border border-border/30 bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
+            title="Add to album"
+            aria-label="Add to album"
+          >
+            <FolderPlus size={17} />
+          </button>
+
           <button
             onClick={toggleFavorite}
             className="rounded-xl border border-border/30 bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
@@ -580,6 +608,10 @@ export function ViewerPage() {
           onCopyImage={handleCopyImage}
           onOpenFolder={handleOpenFolder}
         />
+      )}
+
+      {albumDialog && (
+        <AddToAlbumDialog mediaIds={[item.id]} onClose={() => setAlbumDialog(false)} />
       )}
     </div>
   );
