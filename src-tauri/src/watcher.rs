@@ -40,7 +40,7 @@ impl WatcherRegistry {
                 return;
             }
             let Ok(conn) = db::open(&db_path) else { return };
-            let mut changed = false;
+            let mut newly_indexed: Vec<(String, PathBuf)> = Vec::new();
             for path in &event.paths {
                 if !path.is_file() || indexing::is_supported_media(path).is_none() {
                     continue;
@@ -52,13 +52,21 @@ impl WatcherRegistry {
                         &indexed.item.id,
                         path,
                     );
-                    crate::commands::ai::try_embed_image(&ai, &conn, &indexed.item.id, path);
-                    crate::commands::ai::try_extract_ocr_text(&ai, &conn, &indexed.item.id, path);
-                    changed = true;
+                    newly_indexed.push((indexed.item.id, path.clone()));
                 }
             }
-            if changed {
+            if !newly_indexed.is_empty() {
                 let _ = app.emit(EVENT_MEDIA_CHANGED, &fid);
+                // AI enrichment happens after the change event fires, same reasoning as
+                // scan_folder: thumbnails should show up immediately, not wait on CLIP/OCR.
+                let ai_ready = ai.clip.lock().unwrap().is_some() || ai.ocr.lock().unwrap().is_some();
+                if ai_ready {
+                    for (media_id, path) in &newly_indexed {
+                        crate::commands::ai::try_embed_image(&ai, &conn, media_id, path);
+                        crate::commands::ai::try_extract_ocr_text(&ai, &conn, media_id, path);
+                    }
+                    let _ = app.emit(EVENT_MEDIA_CHANGED, &fid);
+                }
             }
         })?;
 
