@@ -58,7 +58,7 @@ export function TrashPage() {
 
   const deleteForever = async (item: MediaItem) => {
     const confirmed = await confirm(
-      `Send "${item.filename}" to the Windows recycle bin and remove it from Hive?`,
+      `Erase "${item.filename}" from your disk?\n\nThis is permanent — the file does not go to the Windows recycle bin and cannot be recovered.`,
       { title: "Delete permanently", kind: "warning" },
     );
     if (!confirmed) return;
@@ -74,7 +74,7 @@ export function TrashPage() {
 
   const emptyAll = async () => {
     const confirmed = await confirm(
-      `Send all ${formatCount(items.length, "item")} to the Windows recycle bin?`,
+      `Erase all ${formatCount(items.length, "item")} from your disk?\n\nThis is permanent — the files do not go to the Windows recycle bin and cannot be recovered.`,
       { title: "Empty trash", kind: "warning" },
     );
     if (!confirmed) return;
@@ -91,7 +91,7 @@ export function TrashPage() {
         description={
           items.length === 0
             ? "Items you delete land here first. Nothing leaves your disk until you say so."
-            : `${formatCount(items.length, "item")} waiting. Restore them, or clear them for good.`
+            : `${formatCount(items.length, "item")} waiting. Restore them, or erase them — deleting from here is permanent.`
         }
         action={
           items.length > 0 ? (
