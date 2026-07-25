@@ -316,6 +316,17 @@ pub struct BlurReport {
     pub items: Vec<BlurryItem>,
 }
 
+/// State of the thumbnail cache after a limit was applied. `limitBytes` of 0
+/// means no ceiling is set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheReport {
+    pub used_bytes: i64,
+    pub limit_bytes: i64,
+    pub freed_bytes: i64,
+    pub removed: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportReport {
