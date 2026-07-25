@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type {
   AiStatus,
+  DuplicateGroup,
   Folder,
   FolderStats,
   LibraryStats,
@@ -101,4 +102,16 @@ export function semanticSearch(query: string, limit = 200): Promise<MediaItem[]>
 
 export function backfillEmbeddings(): Promise<void> {
   return invoke("backfill_embeddings");
+}
+
+export function scanDuplicates(): Promise<number> {
+  return invoke("scan_duplicates");
+}
+
+export function getDuplicateGroups(): Promise<DuplicateGroup[]> {
+  return invoke("get_duplicate_groups");
+}
+
+export function dismissDuplicateGroup(groupId: string): Promise<void> {
+  return invoke("dismiss_duplicate_group", { groupId });
 }

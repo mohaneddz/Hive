@@ -126,7 +126,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf"
 dependencies = [
  "clipboard-win",
- "image 0.25.10",
+ "image",
  "log",
  "objc2",
  "objc2-app-kit",
@@ -2285,7 +2285,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "futures-util",
- "image 0.25.10",
+ "image",
  "image_hasher",
  "kamadak-exif",
  "mime_guess",
@@ -2603,18 +2603,6 @@ dependencies = [
 
 [[package]]
 name = "image"
-version = "0.24.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5690139d2f55868e080017335e4b94cb7414274c74f1669c84fb5feba2c9f69d"
-dependencies = [
- "bytemuck",
- "byteorder",
- "color_quant",
- "num-traits",
-]
-
-[[package]]
-name = "image"
 version = "0.25.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
@@ -2649,12 +2637,12 @@ dependencies = [
 
 [[package]]
 name = "image_hasher"
-version = "1.2.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f9e64a8c472ea9f81ac448e3b488fd82dcdfce6434cf880882bf36bfb5c268a"
+checksum = "9481465fe767d92494987319b0b447a5829edf57f09c52bf8639396abaaeaf78"
 dependencies = [
- "base64 0.21.7",
- "image 0.24.9",
+ "base64 0.22.1",
+ "image",
  "rustdct",
  "serde",
  "transpose",

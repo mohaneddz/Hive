@@ -82,3 +82,8 @@ export interface AiStatus {
   embeddedCount: number;
   eligibleCount: number;
 }
+
+export interface DuplicateGroup {
+  groupId: string;
+  items: MediaItem[];
+}
