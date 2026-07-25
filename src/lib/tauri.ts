@@ -5,9 +5,11 @@ import type {
   Album,
   BackupInfo,
   BatchReport,
+  BlurReport,
   ConvertFormat,
   DuplicateGroup,
   EditOps,
+  EventGroup,
   ExplorerEntry,
   ExportReport,
   Folder,
@@ -24,6 +26,8 @@ import type {
   RenamePreview,
   SaveMode,
   StorageStats,
+  TimelineBucket,
+  TimelineGranularity,
 } from "@/types/media";
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
@@ -275,6 +279,38 @@ export function cancelPendingRestore(): Promise<boolean> {
 
 export function hasPendingRestore(): Promise<boolean> {
   return invoke("has_pending_restore");
+}
+
+/* --------------------------------------------------------------- organize -- */
+/* Grouping that needs no model: dates, gaps and distances.                    */
+
+export function getTimeline(granularity: TimelineGranularity = "year"): Promise<TimelineBucket[]> {
+  return invoke("get_timeline", { granularity });
+}
+
+export function listMediaInBucket(
+  granularity: TimelineGranularity,
+  key: string,
+  limit = 500,
+): Promise<MediaItem[]> {
+  return invoke("list_media_in_bucket", { granularity, key, limit });
+}
+
+/** Bursts of photos separated by quiet gaps. */
+export function detectEvents(gapHours?: number, minItems?: number): Promise<EventGroup[]> {
+  return invoke("detect_events", { gapHours, minItems });
+}
+
+/** Events that also happened far from where most of your photos are taken. */
+export function detectTrips(minDistanceKm?: number): Promise<EventGroup[]> {
+  return invoke("detect_trips", { minDistanceKm });
+}
+
+/* ---------------------------------------------------------------- quality -- */
+
+/** Scores sharpness for anything unmeasured, then lists what falls below `threshold`. */
+export function scanBlur(threshold?: number, rescan?: boolean): Promise<BlurReport> {
+  return invoke("scan_blur", { threshold, rescan });
 }
 
 export function getTrash(limit: number, offset: number): Promise<MediaPage> {
