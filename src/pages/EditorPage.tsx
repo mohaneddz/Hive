@@ -248,19 +248,21 @@ export function EditorPage() {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <div className="relative grid flex-1 place-items-center overflow-hidden p-8">
+        <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden p-6">
+          {/* The stage shrink-wraps the canvas, so the crop overlay's percentages
+              line up with the pixels underneath whatever the window size. */}
           <div
             ref={stageRef}
             onMouseDown={beginCrop}
             onMouseMove={extendCrop}
             onMouseUp={endCrop}
             onMouseLeave={endCrop}
-            className={cn("relative", tab === "crop" && "cursor-crosshair")}
+            className={cn("relative flex max-h-full max-w-full", tab === "crop" && "cursor-crosshair")}
           >
             <EditorCanvas
               image={image}
               ops={{ ...ops, crop: null }}
-              className="max-h-[calc(100vh-220px)] max-w-full select-none object-contain"
+              className="block max-h-full max-w-full select-none rounded-lg object-contain shadow-2xl"
             />
             {ops.crop && ops.crop.width > 0 && (
               <div
@@ -278,32 +280,34 @@ export function EditorPage() {
             )}
           </div>
           {tab === "crop" && !ops.crop && (
-            <p className="pointer-events-none absolute bottom-6 rounded-full bg-black/60 px-4 py-2 text-[11px] font-bold text-white/80">
+            <p className="pointer-events-none absolute bottom-4 rounded-full bg-black/60 px-4 py-2 text-[11px] font-bold text-white/80">
               Drag across the photo to draw a crop
             </p>
           )}
         </div>
 
-        <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-white/10 bg-panel">
-          <div className="flex items-center gap-1 border-b border-ink/[.08] p-3">
+        <aside className="flex w-80 shrink-0 flex-col overflow-y-auto overflow-x-hidden border-l border-white/10 bg-panel">
+          {/* A four-column grid rather than a flex row: equal cells that are free
+              to shrink, so no label can push the panel wider than it is. */}
+          <div className="sticky top-0 z-10 grid shrink-0 grid-cols-4 gap-1 border-b border-ink/[.08] bg-panel p-2.5">
             {TABS.map((entry) => (
               <button
                 key={entry.key}
                 onClick={() => setTab(entry.key)}
                 className={cn(
-                  "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[11px] font-bold text-ink-muted transition",
-                  tab === entry.key && "bg-cream text-honey-deep",
+                  "flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-[10px] font-bold text-ink-muted transition",
+                  tab === entry.key ? "bg-cream text-honey-deep" : "hover:bg-ink/5 hover:text-ink",
                 )}
               >
-                <entry.icon size={13} />
-                {entry.label}
+                <entry.icon size={15} />
+                <span className="w-full truncate text-center">{entry.label}</span>
               </button>
             ))}
           </div>
 
           {/* ---------------------------------------------------- filters -- */}
           {tab === "filters" && (
-            <div className="p-5">
+            <div className="flex flex-1 flex-col p-5">
               <p className="mb-3 text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-muted">
                 Presets
               </p>
@@ -330,7 +334,9 @@ export function EditorPage() {
                   </button>
                 ))}
               </div>
-              <p className="mt-4 text-[10px] leading-relaxed text-ink-muted">
+              {/* Pushed to the foot of the panel so the tab does not trail off
+                  into dead space under the buttons. */}
+              <p className="mt-auto pt-6 text-[10px] leading-relaxed text-ink-muted">
                 A preset only sets the colour sliders — your rotation and crop stay as they are.
                 Fine-tune anything afterwards in the Adjust tab.
               </p>
