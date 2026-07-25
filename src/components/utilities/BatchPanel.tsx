@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
-import { AlertTriangle, FileType2, Loader2, Minimize2, PenLine } from "lucide-react";
+import { AlertTriangle, Clapperboard, FileType2, Loader2, Minimize2, PenLine } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import {
   batchRename,
   compressImages,
+  compressVideos,
   convertImages,
   getMediaPage,
   isTauri,
   listAlbums,
   listFolders,
   previewBatchRename,
+  videoToolsAvailable,
 } from "@/lib/tauri";
 import type {
   Album,
@@ -25,12 +27,20 @@ import type {
 import { cn } from "@/utils/cn";
 import { formatBytes, formatCount } from "@/utils/format";
 
-type Operation = "rename" | "compress" | "convert";
+type Operation = "rename" | "compress" | "convert" | "video";
 
 const OPERATIONS: { key: Operation; label: string; icon: typeof PenLine }[] = [
   { key: "rename", label: "Rename", icon: PenLine },
   { key: "compress", label: "Compress", icon: Minimize2 },
   { key: "convert", label: "Convert", icon: FileType2 },
+  { key: "video", label: "Video", icon: Clapperboard },
+];
+
+/** CRF values: lower is better-looking and larger. */
+const VIDEO_PRESETS = [
+  { label: "Small", quality: 30, maxHeight: 720 },
+  { label: "Balanced", quality: 25, maxHeight: 1080 },
+  { label: "High", quality: 20, maxHeight: 0 },
 ];
 
 const QUALITY_PRESETS = [
@@ -76,6 +86,8 @@ export function BatchPanel() {
   const [startIndex, setStartIndex] = useState(1);
   const [previews, setPreviews] = useState<RenamePreview[]>([]);
   const [preset, setPreset] = useState(1);
+  const [videoPreset, setVideoPreset] = useState(1);
+  const [ffmpegReady, setFfmpegReady] = useState<boolean | null>(null);
   const [format, setFormat] = useState<ConvertFormat>("webp");
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<BatchReport | null>(null);
@@ -84,6 +96,7 @@ export function BatchPanel() {
     if (!isTauri()) return;
     void listAlbums().then(setAlbums);
     void listFolders().then(setFolders);
+    void videoToolsAvailable().then(setFfmpegReady);
   }, []);
 
   const loadSource = useCallback(async () => {
@@ -111,9 +124,14 @@ export function BatchPanel() {
   }, [loadSource]);
 
   const mediaIds = useMemo(() => items.map((item) => item.id), [items]);
-  // Only images can be re-encoded; a video in the selection is simply passed over.
+  // Image and video work run through different encoders, so each operation only
+  // ever sees the media it can actually handle.
   const imageIds = useMemo(
     () => items.filter((item) => item.mediaType === "image").map((item) => item.id),
+    [items],
+  );
+  const videoIds = useMemo(
+    () => items.filter((item) => item.mediaType === "video").map((item) => item.id),
     [items],
   );
 
@@ -164,6 +182,23 @@ export function BatchPanel() {
       setReport(
         await compressImages(imageIds, quality, maxDimension === 0 ? undefined : maxDimension, destination),
       );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runVideo = async () => {
+    const destination = await pickDestination();
+    if (!destination) return;
+
+    setBusy(true);
+    try {
+      const { quality, maxHeight } = VIDEO_PRESETS[videoPreset];
+      setReport(
+        await compressVideos(videoIds, quality, maxHeight === 0 ? undefined : maxHeight, destination),
+      );
+    } catch (cause) {
+      await confirm(String(cause), { title: "Could not compress", kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -397,6 +432,57 @@ export function BatchPanel() {
               Converted copies go to a folder you choose. Converting to JPEG flattens transparency,
               since JPEG has no alpha channel.
             </p>
+          </>
+        )}
+
+        {/* -------------------------------------------------------- video -- */}
+        {operation === "video" && (
+          <>
+            {ffmpegReady === false ? (
+              <p className="mt-5 flex items-start gap-2.5 rounded-2xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-xs font-semibold leading-relaxed text-red-600">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>
+                  ffmpeg is not on your PATH. Install it to compress videos — it is the same tool
+                  Hive already needs to make video thumbnails.
+                </span>
+              </p>
+            ) : (
+              <>
+                <div className="mt-5 grid grid-cols-3 gap-3">
+                  {VIDEO_PRESETS.map((entry, index) => (
+                    <button
+                      key={entry.label}
+                      onClick={() => setVideoPreset(index)}
+                      className={cn(
+                        "rounded-2xl border p-4 text-left transition",
+                        videoPreset === index
+                          ? "border-honey bg-cream/55"
+                          : "border-ink/[.08] bg-canvas hover:border-honey/40",
+                      )}
+                    >
+                      <p className="text-sm font-extrabold text-ink">{entry.label}</p>
+                      <p className="mt-0.5 text-[11px] text-ink-muted">
+                        CRF {entry.quality}
+                        {entry.maxHeight > 0 ? ` · max ${entry.maxHeight}p` : " · full size"}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  className="mt-5"
+                  icon={busy ? <Loader2 size={15} className="animate-spin" /> : <Clapperboard size={15} />}
+                  onClick={runVideo}
+                  disabled={busy || videoIds.length === 0}
+                >
+                  Compress {formatCount(videoIds.length, "video")}…
+                </Button>
+                <p className="mt-2.5 text-[11px] text-ink-muted">
+                  Re-encoded copies are written as H.264 MP4 into a folder you choose. Your
+                  originals are never opened for writing. Photos in the selection are skipped, and
+                  this is slow — video encoding always is.
+                </p>
+              </>
+            )}
           </>
         )}
 

@@ -348,6 +348,119 @@ pub fn convert_images(
     Ok(report)
 }
 
+/// Re-encodes videos into `destination` with H.264, using the same system
+/// `ffmpeg` binary that already produces video thumbnails.
+///
+/// `quality` is a CRF value: lower is better-looking and larger, higher is
+/// smaller and softer. 18 is visually lossless, 28 is noticeably compressed.
+/// Like every other batch operation, this only ever writes new files.
+#[tauri::command]
+pub fn compress_videos(
+    state: State<'_, AppState>,
+    media_ids: Vec<String>,
+    quality: u8,
+    max_height: Option<u32>,
+    destination: String,
+) -> Result<BatchReport, String> {
+    if !crate::thumbnails::ffmpeg_available() {
+        return Err(
+            "ffmpeg is not on your PATH. Install it to compress videos — Hive uses the same \
+             binary it already needs for video thumbnails."
+                .into(),
+        );
+    }
+
+    let destination_dir = PathBuf::from(&destination);
+    if !destination_dir.is_dir() {
+        return Err("The destination is not a folder".into());
+    }
+    let crf = quality.clamp(16, 40).to_string();
+
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let rows = read_rows(&conn, &media_ids)?;
+
+    let mut report = BatchReport {
+        processed: 0,
+        skipped: 0,
+        failed: 0,
+        bytes_before: 0,
+        bytes_after: 0,
+        destination: Some(destination.clone()),
+        first_error: None,
+    };
+
+    for (_, path, filename, _) in rows {
+        let source = Path::new(&path);
+        let Ok(metadata) = std::fs::metadata(source) else {
+            report.skipped += 1;
+            continue;
+        };
+
+        let stem = Path::new(&filename)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| filename.clone());
+        let target = crate::commands::utilities::unique_destination(
+            &destination_dir,
+            &format!("{stem}.mp4"),
+        );
+
+        let mut args: Vec<String> = vec![
+            "-y".into(),
+            "-i".into(),
+            path.clone(),
+            "-c:v".into(),
+            "libx264".into(),
+            "-crf".into(),
+            crf.clone(),
+            "-preset".into(),
+            "medium".into(),
+            "-c:a".into(),
+            "aac".into(),
+            "-b:a".into(),
+            "128k".into(),
+        ];
+        if let Some(height) = max_height.filter(|h| *h > 0) {
+            // -2 keeps the width even, which H.264 requires.
+            args.push("-vf".into());
+            args.push(format!("scale=-2:min({height}\\,ih)"));
+        }
+        args.push(target.to_string_lossy().to_string());
+
+        match std::process::Command::new("ffmpeg").args(&args).output() {
+            Ok(output) if output.status.success() => {
+                report.processed += 1;
+                report.bytes_before += metadata.len() as i64;
+                report.bytes_after +=
+                    std::fs::metadata(&target).map(|m| m.len() as i64).unwrap_or(0);
+            }
+            Ok(output) => {
+                report.failed += 1;
+                report.first_error.get_or_insert_with(|| {
+                    String::from_utf8_lossy(&output.stderr)
+                        .lines()
+                        .last()
+                        .unwrap_or("ffmpeg failed")
+                        .to_string()
+                });
+                let _ = std::fs::remove_file(&target);
+            }
+            Err(error) => {
+                report.failed += 1;
+                report.first_error.get_or_insert_with(|| error.to_string());
+            }
+        }
+    }
+
+    Ok(report)
+}
+
+/// Whether video compression is available on this machine.
+#[tauri::command]
+pub fn video_tools_available() -> bool {
+    crate::thumbnails::ffmpeg_available()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

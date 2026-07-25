@@ -17,9 +17,11 @@ import {
   clearThumbnailCache,
   downloadFaceModels,
   downloadOcrModels,
+  getGeocodingEnabled,
   getStorageStats,
   isTauri,
   setFolderWatched,
+  setGeocodingEnabled,
 } from "@/lib/tauri";
 import { useLibraryStats } from "@/hooks/useLibraryStats";
 import type { StorageStats } from "@/types/media";
@@ -60,7 +62,13 @@ export function GallerySettingsPage() {
   const [thumbsRebuilding, setThumbsRebuilding] = useState(false);
   const [storage, setStorage] = useState<StorageStats | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
   const { stats } = useLibraryStats();
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void getGeocodingEnabled().then(setGeocoding);
+  }, []);
 
   const loadStorage = useCallback(async () => {
     if (!isTauri()) return;
@@ -583,11 +591,45 @@ export function GallerySettingsPage() {
           <p className="mt-5 text-xs leading-relaxed text-ink-muted">
             Hive is local-first. Your photos are read from the folders you choose and never copied
             anywhere else. The index, thumbnails, AI models and preferences all live in your own
-            user profile, and recognition runs on this machine — no image is ever uploaded. The two
-            outbound actions in the whole app are downloading the AI models once, and the “Open in
-            maps” button on a place, which hands a pair of coordinates to your browser only when you
-            click it.
+            user profile, and recognition runs on this machine — no image is ever uploaded.
           </p>
+
+          <div className="mt-5 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-extrabold text-ink">Look up place names</p>
+                <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-ink-muted">
+                  Turns coordinates into names like “Lyon, France” on the Places page. There is no
+                  offline way to do this, so lookups go to OpenStreetMap. What leaves your machine
+                  is a pair of coordinates rounded to about a kilometre — no photo, no filename, no
+                  identifier. Every answer is cached, so a place is looked up once and never again.
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={geocoding}
+                onClick={async () => {
+                  const next = !geocoding;
+                  await setGeocodingEnabled(next);
+                  setGeocoding(next);
+                }}
+                className={cn(
+                  "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition",
+                  geocoding ? "bg-honey" : "bg-ink/20",
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-0.5 size-5 rounded-full bg-white shadow transition-all",
+                    geocoding ? "left-[22px]" : "left-0.5",
+                  )}
+                />
+              </button>
+            </div>
+            <p className="mt-3 text-[10px] font-bold text-ink-muted">
+              {geocoding ? "On — names are fetched when you ask for them" : "Off — coordinates only"}
+            </p>
+          </div>
         </Card>
       </div>
     </div>

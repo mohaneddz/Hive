@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, ExternalLink, MapPin } from "lucide-react";
+import { ArrowLeft, ExternalLink, Globe, Loader2, MapPin } from "lucide-react";
 
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { MediaGrid } from "@/components/media/MediaGrid";
 import { MediaThumb } from "@/components/media/MediaThumb";
-import { isTauri, listMediaAtPlace, listPlaces } from "@/lib/tauri";
+import {
+  getCachedPlaceNames,
+  getGeocodingEnabled,
+  isTauri,
+  listMediaAtPlace,
+  listPlaces,
+  lookupPlaceNames,
+} from "@/lib/tauri";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import type { MediaItem, PlaceGroup } from "@/types/media";
 import { cn } from "@/utils/cn";
@@ -76,6 +83,36 @@ export function PlacesPage() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<PlaceGroup | null>(null);
   const [items, setItems] = useState<MediaItem[]>([]);
+  /** Cached place names, keyed the same way the backend caches them. */
+  const [names, setNames] = useState<Map<string, string>>(new Map());
+  const [geocoding, setGeocoding] = useState(false);
+  const [naming, setNaming] = useState(false);
+
+  const nameKey = (lat: number, lon: number) => `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  const nameFor = (place: PlaceGroup) => names.get(nameKey(place.lat, place.lon));
+
+  const absorbNames = (entries: [number, number, string][]) =>
+    setNames((prev) => {
+      const next = new Map(prev);
+      entries.forEach(([lat, lon, name]) => next.set(nameKey(lat, lon), name));
+      return next;
+    });
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void getGeocodingEnabled().then(setGeocoding);
+    // Cached names cost nothing and work offline.
+    void getCachedPlaceNames().then(absorbNames);
+  }, []);
+
+  const lookupNames = async () => {
+    setNaming(true);
+    try {
+      absorbNames(await lookupPlaceNames(places.map((place) => [place.lat, place.lon])));
+    } finally {
+      setNaming(false);
+    }
+  };
 
   const load = useCallback(async () => {
     if (!isTauri()) return;
@@ -115,7 +152,7 @@ export function PlacesPage() {
         </button>
         <GalleryPageHeader
           eyebrow="Place"
-          title={formatCoordinates(active.lat, active.lon)}
+          title={nameFor(active) ?? formatCoordinates(active.lat, active.lon)}
           description={`${formatCount(active.count, "photo")} taken here${
             active.earliest ? ` · ${formatDate(active.earliest)} → ${formatDate(active.latest)}` : ""
           }`}
@@ -175,6 +212,27 @@ export function PlacesPage() {
         />
       )}
 
+      {places.length > 0 && geocoding && names.size < places.length && (
+        <div className="mt-6 flex items-center justify-between gap-4 rounded-2xl border border-honey/30 bg-cream/45 px-4 py-3">
+          <p className="text-xs font-semibold text-honey-deep">
+            {names.size === 0
+              ? "Place names are enabled but nothing has been looked up yet."
+              : `${places.length - names.size} pin${places.length - names.size === 1 ? "" : "s"} still unnamed.`}{" "}
+            <span className="font-normal">
+              Looking them up sends coordinates to OpenStreetMap, one per second.
+            </span>
+          </p>
+          <button
+            onClick={lookupNames}
+            disabled={naming}
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-honey px-4 py-2 text-xs font-extrabold text-[#3b2900] transition hover:bg-honey-dark disabled:opacity-50"
+          >
+            {naming ? <Loader2 size={14} className="animate-spin" /> : <Globe size={14} />}
+            {naming ? "Looking up…" : "Look up names"}
+          </button>
+        </div>
+      )}
+
       {places.length > 0 && (
         <>
           <MiniMap places={places} activeId={null} onSelect={openPlace} />
@@ -199,10 +257,14 @@ export function PlacesPage() {
                 </div>
                 <div className="p-4">
                   <p className="truncate text-xs font-extrabold text-ink">
-                    {formatCoordinates(place.lat, place.lon)}
+                    {nameFor(place) ?? formatCoordinates(place.lat, place.lon)}
                   </p>
                   <p className="mt-0.5 truncate text-[11px] text-ink-muted">
-                    {place.earliest ? formatDate(place.earliest) : "Undated"}
+                    {nameFor(place)
+                      ? formatCoordinates(place.lat, place.lon)
+                      : place.earliest
+                        ? formatDate(place.earliest)
+                        : "Undated"}
                   </p>
                 </div>
               </button>

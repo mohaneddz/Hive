@@ -313,6 +313,50 @@ export function scanBlur(threshold?: number, rescan?: boolean): Promise<BlurRepo
   return invoke("scan_blur", { threshold, rescan });
 }
 
+/** Whether ffmpeg is on PATH, which is what video compression needs. */
+export function videoToolsAvailable(): Promise<boolean> {
+  return invoke("video_tools_available");
+}
+
+/**
+ * Re-encodes videos into `destination`. `quality` is a CRF value: 18 is
+ * visually lossless, 28 noticeably compressed. Originals are untouched.
+ */
+export function compressVideos(
+  mediaIds: string[],
+  quality: number,
+  maxHeight: number | undefined,
+  destination: string,
+): Promise<BatchReport> {
+  return invoke("compress_videos", { mediaIds, quality, maxHeight, destination });
+}
+
+/* ---------------------------------------------------------------- geocode -- */
+/* The only feature that leaves this machine, and it is off until enabled.      */
+
+export function getGeocodingEnabled(): Promise<boolean> {
+  return invoke("get_geocoding_enabled");
+}
+
+export function setGeocodingEnabled(enabled: boolean): Promise<void> {
+  return invoke("set_geocoding_enabled", { enabled });
+}
+
+/** Everything already looked up — reads the cache, never the network. */
+export function getCachedPlaceNames(): Promise<[number, number, string][]> {
+  return invoke("get_cached_place_names");
+}
+
+/**
+ * Names a batch of coordinates, using the cache first. Rejects when the feature
+ * is disabled, so nothing can reach the network by accident.
+ */
+export function lookupPlaceNames(
+  coordinates: [number, number][],
+): Promise<[number, number, string][]> {
+  return invoke("lookup_place_names", { coordinates });
+}
+
 export function getTrash(limit: number, offset: number): Promise<MediaPage> {
   return invoke("get_trash", { limit, offset });
 }

@@ -7,6 +7,7 @@ pub mod editor;
 pub mod explorer;
 pub mod faces;
 pub mod folders;
+pub mod geocode;
 pub mod media;
 pub mod organize;
 pub mod places;
