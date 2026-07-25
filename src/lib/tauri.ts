@@ -6,6 +6,7 @@ import type {
   BackupInfo,
   BatchReport,
   BlurReport,
+  CacheReport,
   ConvertFormat,
   DuplicateGroup,
   EditOps,
@@ -355,6 +356,31 @@ export function lookupPlaceNames(
   coordinates: [number, number][],
 ): Promise<[number, number, string][]> {
   return invoke("lookup_place_names", { coordinates });
+}
+
+/* ------------------------------------------------------------ preferences -- */
+
+/** 0 means no ceiling on the thumbnail cache. */
+export function getCacheLimitMb(): Promise<number> {
+  return invoke("get_cache_limit_mb");
+}
+
+export function setCacheLimitMb(megabytes: number): Promise<void> {
+  return invoke("set_cache_limit_mb", { megabytes });
+}
+
+/** Trims the least recently used thumbnails until the cache fits its limit. */
+export function applyCacheLimit(): Promise<CacheReport> {
+  return invoke("apply_cache_limit");
+}
+
+/** Only the bindings the user changed; the rest fall back to the defaults. */
+export function getShortcutOverrides(): Promise<Record<string, string>> {
+  return invoke("get_shortcut_overrides");
+}
+
+export function setShortcutOverrides(overrides: Record<string, string>): Promise<void> {
+  return invoke("set_shortcut_overrides", { overrides });
 }
 
 export function getTrash(limit: number, offset: number): Promise<MediaPage> {
