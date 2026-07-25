@@ -1,4 +1,4 @@
-import { Download, FolderOpen, Image, Monitor, Moon, Palette, Plus, RefreshCw, ScanText, Sparkles, Sun, Trash2 } from "lucide-react";
+import { Download, FolderOpen, Image, Monitor, Moon, Palette, Plus, RefreshCw, ScanText, Sparkles, Sun, Trash2, Users } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 
@@ -8,7 +8,14 @@ import { useAiStatus } from "@/hooks/useAiStatus";
 import { useJobProgress } from "@/hooks/useJobProgress";
 import { useTheme, type Theme } from "@/hooks/useTheme";
 import { useMediaLibrary } from "@/hooks/useMediaLibrary";
-import { backfillEmbeddings, backfillOcr, downloadAiModels, downloadOcrModels } from "@/lib/tauri";
+import {
+  backfillEmbeddings,
+  backfillFaces,
+  backfillOcr,
+  downloadAiModels,
+  downloadFaceModels,
+  downloadOcrModels,
+} from "@/lib/tauri";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import { formatBytes } from "@/utils/format";
 import { cn } from "@/utils/cn";
@@ -27,11 +34,15 @@ export function GallerySettingsPage() {
   const [backfilling, setBackfilling] = useState(false);
   const [ocrDownloading, setOcrDownloading] = useState(false);
   const [ocrBackfilling, setOcrBackfilling] = useState(false);
+  const [faceDownloading, setFaceDownloading] = useState(false);
+  const [faceBackfilling, setFaceBackfilling] = useState(false);
 
   const downloadJob = jobs.find((j) => j.kind === "download_models" && j.status === "running");
   const backfillJob = jobs.find((j) => j.kind === "embed_backfill" && j.status === "running");
   const ocrDownloadJob = jobs.find((j) => j.kind === "download_ocr_models" && j.status === "running");
   const ocrBackfillJob = jobs.find((j) => j.kind === "ocr_backfill" && j.status === "running");
+  const faceDownloadJob = jobs.find((j) => j.kind === "download_face_models" && j.status === "running");
+  const faceBackfillJob = jobs.find((j) => j.kind === "face_backfill" && j.status === "running");
 
   const startDownload = async () => {
     setDownloading(true);
@@ -74,6 +85,28 @@ export function GallerySettingsPage() {
       refreshAiStatus();
     } finally {
       setOcrBackfilling(false);
+    }
+  };
+
+  const startFaceDownload = async () => {
+    setFaceDownloading(true);
+    try {
+      await downloadFaceModels();
+      refreshAiStatus();
+    } catch {
+      /* surfaced via job status */
+    } finally {
+      setFaceDownloading(false);
+    }
+  };
+
+  const startFaceBackfill = async () => {
+    setFaceBackfilling(true);
+    try {
+      await backfillFaces();
+      refreshAiStatus();
+    } finally {
+      setFaceBackfilling(false);
     }
   };
 
@@ -243,6 +276,55 @@ export function GallerySettingsPage() {
                   className="shrink-0"
                 >
                   {ocrBackfillJob ? "Working…" : "Scan remaining"}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {!aiStatus?.faceModelsReady ? (
+            <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+              <div className="min-w-0 flex items-center gap-3">
+                <Users size={16} className="shrink-0 text-honey-deep" />
+                <div>
+                  <p className="text-xs font-bold text-ink">People (face recognition)</p>
+                  <p className="mt-0.5 text-[11px] text-ink-muted">
+                    {faceDownloadJob
+                      ? `Downloading… ${formatBytes(faceDownloadJob.current)} / ${formatBytes(faceDownloadJob.total)}`
+                      : "~67 MB, groups photos by the people in them."}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                icon={<Download size={14} />}
+                disabled={faceDownloading || !!faceDownloadJob}
+                onClick={startFaceDownload}
+                className="shrink-0"
+              >
+                {faceDownloadJob ? "Downloading…" : "Download"}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+              <div className="min-w-0 flex items-center gap-3">
+                <Users size={16} className="shrink-0 text-honey-deep" />
+                <div>
+                  <p className="text-xs font-bold text-ink">People</p>
+                  <p className="mt-0.5 text-[11px] text-ink-muted">
+                    {faceBackfillJob
+                      ? `Scanning for faces… ${faceBackfillJob.current}/${faceBackfillJob.total}`
+                      : `${aiStatus.peopleCount.toLocaleString()} people found in ${aiStatus.facesIndexedCount.toLocaleString()} of ${aiStatus.eligibleCount.toLocaleString()} photos.`}
+                  </p>
+                </div>
+              </div>
+              {aiStatus.facesIndexedCount < aiStatus.eligibleCount && (
+                <Button
+                  variant="secondary"
+                  disabled={faceBackfilling || !!faceBackfillJob}
+                  onClick={startFaceBackfill}
+                  className="shrink-0"
+                >
+                  {faceBackfillJob ? "Working…" : "Scan remaining"}
                 </Button>
               )}
             </div>
