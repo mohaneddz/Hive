@@ -56,3 +56,7 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[dev-dependencies]
+ab_glyph = "0.2.32"
+imageproc = "0.27"
