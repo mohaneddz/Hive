@@ -1,4 +1,4 @@
-import { Download, FolderOpen, Image, Monitor, Moon, Palette, Plus, RefreshCw, Sparkles, Sun, Trash2 } from "lucide-react";
+import { Download, FolderOpen, Image, Monitor, Moon, Palette, Plus, RefreshCw, ScanText, Sparkles, Sun, Trash2 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 
@@ -8,7 +8,7 @@ import { useAiStatus } from "@/hooks/useAiStatus";
 import { useJobProgress } from "@/hooks/useJobProgress";
 import { useTheme, type Theme } from "@/hooks/useTheme";
 import { useMediaLibrary } from "@/hooks/useMediaLibrary";
-import { backfillEmbeddings, downloadAiModels } from "@/lib/tauri";
+import { backfillEmbeddings, backfillOcr, downloadAiModels, downloadOcrModels } from "@/lib/tauri";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import { formatBytes } from "@/utils/format";
 import { cn } from "@/utils/cn";
@@ -25,9 +25,13 @@ export function GallerySettingsPage() {
   const jobs = useJobProgress();
   const [downloading, setDownloading] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
+  const [ocrDownloading, setOcrDownloading] = useState(false);
+  const [ocrBackfilling, setOcrBackfilling] = useState(false);
 
   const downloadJob = jobs.find((j) => j.kind === "download_models" && j.status === "running");
   const backfillJob = jobs.find((j) => j.kind === "embed_backfill" && j.status === "running");
+  const ocrDownloadJob = jobs.find((j) => j.kind === "download_ocr_models" && j.status === "running");
+  const ocrBackfillJob = jobs.find((j) => j.kind === "ocr_backfill" && j.status === "running");
 
   const startDownload = async () => {
     setDownloading(true);
@@ -48,6 +52,28 @@ export function GallerySettingsPage() {
       refreshAiStatus();
     } finally {
       setBackfilling(false);
+    }
+  };
+
+  const startOcrDownload = async () => {
+    setOcrDownloading(true);
+    try {
+      await downloadOcrModels();
+      refreshAiStatus();
+    } catch {
+      /* surfaced via job status */
+    } finally {
+      setOcrDownloading(false);
+    }
+  };
+
+  const startOcrBackfill = async () => {
+    setOcrBackfilling(true);
+    try {
+      await backfillOcr();
+      refreshAiStatus();
+    } finally {
+      setOcrBackfilling(false);
     }
   };
 
@@ -168,6 +194,55 @@ export function GallerySettingsPage() {
                   className="shrink-0"
                 >
                   {backfillJob ? "Working…" : "Embed remaining"}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {!aiStatus?.ocrModelsReady ? (
+            <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+              <div className="min-w-0 flex items-center gap-3">
+                <ScanText size={16} className="shrink-0 text-honey-deep" />
+                <div>
+                  <p className="text-xs font-bold text-ink">Text in photos (OCR)</p>
+                  <p className="mt-0.5 text-[11px] text-ink-muted">
+                    {ocrDownloadJob
+                      ? `Downloading… ${formatBytes(ocrDownloadJob.current)} / ${formatBytes(ocrDownloadJob.total)}`
+                      : "~96 MB, lets search find text inside photos."}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                icon={<Download size={14} />}
+                disabled={ocrDownloading || !!ocrDownloadJob}
+                onClick={startOcrDownload}
+                className="shrink-0"
+              >
+                {ocrDownloadJob ? "Downloading…" : "Download"}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+              <div className="min-w-0 flex items-center gap-3">
+                <ScanText size={16} className="shrink-0 text-honey-deep" />
+                <div>
+                  <p className="text-xs font-bold text-ink">Text in photos is searchable</p>
+                  <p className="mt-0.5 text-[11px] text-ink-muted">
+                    {ocrBackfillJob
+                      ? `Reading photos… ${ocrBackfillJob.current}/${ocrBackfillJob.total}`
+                      : `${aiStatus.ocrIndexedCount.toLocaleString()} of ${aiStatus.eligibleCount.toLocaleString()} photos scanned for text.`}
+                  </p>
+                </div>
+              </div>
+              {aiStatus.ocrIndexedCount < aiStatus.eligibleCount && (
+                <Button
+                  variant="secondary"
+                  disabled={ocrBackfilling || !!ocrBackfillJob}
+                  onClick={startOcrBackfill}
+                  className="shrink-0"
+                >
+                  {ocrBackfillJob ? "Working…" : "Scan remaining"}
                 </Button>
               )}
             </div>
