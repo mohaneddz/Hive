@@ -2,14 +2,28 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type {
   AiStatus,
+  Album,
+  BackupInfo,
+  BatchReport,
+  ConvertFormat,
   DuplicateGroup,
+  EditOps,
+  ExplorerEntry,
+  ExportReport,
   Folder,
   FolderStats,
+  LibraryHealth,
   LibraryStats,
   MediaItem,
   MediaPage,
+  MediaScope,
+  MediaSort,
   PersonSummary,
   PlaceCluster,
+  PlaceGroup,
+  RenamePreview,
+  SaveMode,
+  StorageStats,
 } from "@/types/media";
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
@@ -38,14 +52,229 @@ export function cancelJob(jobId: string): Promise<void> {
   return invoke("cancel_job", { jobId });
 }
 
-export function getMediaPage(options: {
+/**
+ * Declared as a type alias, not an interface: `invoke` wants a
+ * `Record<string, unknown>`, and only type aliases get an implicit index signature.
+ */
+export type MediaPageOptions = {
   limit: number;
   offset: number;
   mediaType?: string;
   favoritesOnly?: boolean;
   folderId?: string;
-}): Promise<MediaPage> {
+  /** Restrict to the members of one album. */
+  albumId?: string;
+  /** Which slice of the library to read. Defaults to "library". */
+  scope?: MediaScope;
+  sort?: MediaSort;
+};
+
+export function getMediaPage(options: MediaPageOptions): Promise<MediaPage> {
   return invoke("get_media_page", options);
+}
+
+/** Pauses or resumes live watching without un-indexing anything. */
+export function setFolderWatched(folderId: string, watched: boolean): Promise<void> {
+  return invoke("set_folder_watched", { folderId, watched });
+}
+
+export function setHidden(mediaId: string, hidden: boolean): Promise<void> {
+  return invoke("set_hidden", { mediaId, hidden });
+}
+
+export function setArchived(mediaId: string, archived: boolean): Promise<void> {
+  return invoke("set_archived", { mediaId, archived });
+}
+
+export function touchLastViewed(mediaId: string): Promise<void> {
+  return invoke("touch_last_viewed", { mediaId });
+}
+
+/** Purges every trashed item. Resolves with the number removed. */
+export function emptyTrash(): Promise<number> {
+  return invoke("empty_trash");
+}
+
+/** Photos taken on this calendar day in an earlier year. */
+export function getOnThisDay(limit = 24): Promise<MediaItem[]> {
+  return invoke("get_on_this_day", { limit });
+}
+
+/* ----------------------------------------------------------------- albums -- */
+
+export function listAlbums(): Promise<Album[]> {
+  return invoke("list_albums");
+}
+
+export function getAlbum(albumId: string): Promise<Album> {
+  return invoke("get_album", { albumId });
+}
+
+export function createAlbum(name: string, description?: string): Promise<Album> {
+  return invoke("create_album", { name, description });
+}
+
+export function updateAlbum(albumId: string, name: string, description?: string): Promise<void> {
+  return invoke("update_album", { albumId, name, description });
+}
+
+export function deleteAlbum(albumId: string): Promise<void> {
+  return invoke("delete_album", { albumId });
+}
+
+export function setAlbumCover(albumId: string, mediaId: string | null): Promise<void> {
+  return invoke("set_album_cover", { albumId, mediaId });
+}
+
+/** Resolves with how many were actually new to the album. */
+export function addMediaToAlbum(albumId: string, mediaIds: string[]): Promise<number> {
+  return invoke("add_media_to_album", { albumId, mediaIds });
+}
+
+export function removeMediaFromAlbum(albumId: string, mediaId: string): Promise<void> {
+  return invoke("remove_media_from_album", { albumId, mediaId });
+}
+
+export function listAlbumsForMedia(mediaId: string): Promise<string[]> {
+  return invoke("list_albums_for_media", { mediaId });
+}
+
+/* ----------------------------------------------------------------- places -- */
+
+export function listPlaces(precision?: number): Promise<PlaceGroup[]> {
+  return invoke("list_places", { precision });
+}
+
+export function listMediaAtPlace(
+  lat: number,
+  lon: number,
+  precision?: number,
+  limit = 300,
+): Promise<MediaItem[]> {
+  return invoke("list_media_at_place", { lat, lon, precision, limit });
+}
+
+/* --------------------------------------------------------------- explorer -- */
+
+export function listDrives(): Promise<ExplorerEntry[]> {
+  return invoke("list_drives");
+}
+
+export function listDirectory(path: string): Promise<ExplorerEntry[]> {
+  return invoke("list_directory", { path });
+}
+
+export function parentDirectory(path: string): Promise<string | null> {
+  return invoke("parent_directory", { path });
+}
+
+/* ----------------------------------------------------------------- editor -- */
+
+/**
+ * Bakes the adjustments into a real file.
+ * `"copy"` writes `name (edited).ext` beside the original and leaves it intact;
+ * `"overwrite"` replaces it, keeping favorites, albums and flags.
+ */
+export function applyEdits(mediaId: string, ops: EditOps, mode: SaveMode): Promise<MediaItem> {
+  return invoke("apply_edits", { mediaId, ops, mode });
+}
+
+/** Stored by Hive, never written into the photo file. */
+export function updateMediaMetadata(
+  mediaId: string,
+  title: string | null,
+  description: string | null,
+  takenAtOverride: string | null,
+): Promise<MediaItem> {
+  return invoke("update_media_metadata", { mediaId, title, description, takenAtOverride });
+}
+
+/* ------------------------------------------------------------------ batch -- */
+
+/**
+ * Pattern tokens: `{name}` original stem · `{n}` sequence number · `{date}`
+ * capture day. The extension is always carried over, never part of the pattern.
+ */
+export function previewBatchRename(
+  mediaIds: string[],
+  pattern: string,
+  startIndex = 1,
+): Promise<RenamePreview[]> {
+  return invoke("preview_batch_rename", { mediaIds, pattern, startIndex });
+}
+
+export function batchRename(
+  mediaIds: string[],
+  pattern: string,
+  startIndex = 1,
+): Promise<BatchReport> {
+  return invoke("batch_rename", { mediaIds, pattern, startIndex });
+}
+
+/** Writes compressed JPEG copies into `destination`. Originals are untouched. */
+export function compressImages(
+  mediaIds: string[],
+  quality: number,
+  maxDimension: number | undefined,
+  destination: string,
+): Promise<BatchReport> {
+  return invoke("compress_images", { mediaIds, quality, maxDimension, destination });
+}
+
+/** Writes converted copies into `destination`. Originals are untouched. */
+export function convertImages(
+  mediaIds: string[],
+  format: ConvertFormat,
+  destination: string,
+): Promise<BatchReport> {
+  return invoke("convert_images", { mediaIds, format, destination });
+}
+
+/* -------------------------------------------------------------- utilities -- */
+
+export function scanLibraryHealth(): Promise<LibraryHealth> {
+  return invoke("scan_library_health");
+}
+
+/** Drops rows whose file is gone. Resolves with the number removed. */
+export function removeMissingEntries(): Promise<number> {
+  return invoke("remove_missing_entries");
+}
+
+export function getStorageStats(): Promise<StorageStats> {
+  return invoke("get_storage_stats");
+}
+
+/** Deletes every generated thumbnail. Resolves with the bytes freed. */
+export function clearThumbnailCache(): Promise<number> {
+  return invoke("clear_thumbnail_cache");
+}
+
+export function exportMedia(mediaIds: string[], destination: string): Promise<ExportReport> {
+  return invoke("export_media", { mediaIds, destination });
+}
+
+/* ----------------------------------------------------------------- backup -- */
+
+export function backupLibrary(destination: string): Promise<BackupInfo> {
+  return invoke("backup_library", { destination });
+}
+
+export function inspectBackup(backupPath: string): Promise<BackupInfo> {
+  return invoke("inspect_backup", { backupPath });
+}
+
+/** Stages a restore; it is applied the next time Hive starts. */
+export function restoreLibrary(backupPath: string): Promise<string> {
+  return invoke("restore_library", { backupPath });
+}
+
+export function cancelPendingRestore(): Promise<boolean> {
+  return invoke("cancel_pending_restore");
+}
+
+export function hasPendingRestore(): Promise<boolean> {
+  return invoke("has_pending_restore");
 }
 
 export function getTrash(limit: number, offset: number): Promise<MediaPage> {

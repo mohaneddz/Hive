@@ -38,6 +38,15 @@ export interface MediaItem {
   indexedAt: string;
   isFavorite: boolean;
   isTrashed: boolean;
+  trashedAt: string | null;
+  isHidden: boolean;
+  isArchived: boolean;
+  lastViewedAt: string | null;
+  title: string | null;
+  description: string | null;
+  /** A capture date the user corrected by hand; wins over `takenAt`. */
+  takenAtOverride: string | null;
+  editedAt: string | null;
   exif: ExifData | null;
   thumbnailPath: string | null;
 }
@@ -74,6 +83,142 @@ export interface LibraryStats {
   totalBytes: number;
   favorites: number;
   trashed: number;
+  imageCount: number;
+  videoCount: number;
+  albumCount: number;
+  placeCount: number;
+  hiddenCount: number;
+  archivedCount: number;
+  folderCount: number;
+}
+
+/** Mutually exclusive slices of the library. Mirrors `scope_predicate` in Rust. */
+export type MediaScope = "library" | "trash" | "hidden" | "archive" | "all";
+
+export type MediaSort = "taken" | "oldest" | "added" | "name" | "size" | "viewed";
+
+export interface Album {
+  id: string;
+  name: string;
+  description: string | null;
+  coverMediaId: string | null;
+  itemCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlaceGroup {
+  id: string;
+  lat: number;
+  lon: number;
+  count: number;
+  coverMediaId: string;
+  earliest: string | null;
+  latest: string | null;
+}
+
+export interface ExplorerEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  mediaCount: number;
+  indexedCount: number;
+  isWatched: boolean;
+}
+
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Applied in a fixed order — rotate → flip → crop → colour — matching
+ * `apply_ops` in Rust, so the live preview and the written file agree.
+ */
+export interface EditOps {
+  /** 0, 90, 180 or 270, clockwise. */
+  rotation: number;
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+  /** Fractions of the rotated image, 0..1. `null` keeps the whole frame. */
+  crop: CropRect | null;
+  /** 1 leaves the channel untouched. Same maths as the CSS filter of the same name. */
+  brightness: number;
+  contrast: number;
+  saturation: number;
+}
+
+export const NEUTRAL_EDIT_OPS: EditOps = {
+  rotation: 0,
+  flipHorizontal: false,
+  flipVertical: false,
+  crop: null,
+  brightness: 1,
+  contrast: 1,
+  saturation: 1,
+};
+
+/** The user's answer to "keep the original?". */
+export type SaveMode = "copy" | "overwrite";
+
+export interface BatchReport {
+  processed: number;
+  skipped: number;
+  failed: number;
+  /** Only meaningful for compression and conversion. */
+  bytesBefore: number;
+  bytesAfter: number;
+  destination: string | null;
+  firstError: string | null;
+}
+
+export interface RenamePreview {
+  mediaId: string;
+  from: string;
+  to: string;
+  /** The target name already exists, or repeats inside the same batch. */
+  conflict: boolean;
+}
+
+export type ConvertFormat = "jpg" | "png" | "webp";
+
+export interface BackupInfo {
+  path: string;
+  bytes: number;
+  createdAt: string;
+  itemCount: number;
+}
+
+export interface FolderUsage {
+  folderId: string;
+  name: string;
+  path: string;
+  itemCount: number;
+  bytes: number;
+}
+
+export interface StorageStats {
+  totalItems: number;
+  imageCount: number;
+  videoCount: number;
+  originalBytes: number;
+  thumbnailBytes: number;
+  databaseBytes: number;
+  byFolder: FolderUsage[];
+}
+
+export interface LibraryHealth {
+  checked: number;
+  missing: MediaItem[];
+  broken: MediaItem[];
+}
+
+export interface ExportReport {
+  exported: number;
+  skipped: number;
+  destination: string;
 }
 
 export interface AiStatus {
