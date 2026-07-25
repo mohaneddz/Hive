@@ -159,6 +159,8 @@ pub fn run() {
             commands::batch::batch_rename,
             commands::batch::compress_images,
             commands::batch::convert_images,
+            commands::batch::compress_videos,
+            commands::batch::video_tools_available,
             commands::backup::backup_library,
             commands::backup::inspect_backup,
             commands::backup::restore_library,
@@ -174,6 +176,10 @@ pub fn run() {
             commands::organize::detect_events,
             commands::organize::detect_trips,
             commands::quality::scan_blur,
+            commands::geocode::get_geocoding_enabled,
+            commands::geocode::set_geocoding_enabled,
+            commands::geocode::get_cached_place_names,
+            commands::geocode::lookup_place_names,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hive");
