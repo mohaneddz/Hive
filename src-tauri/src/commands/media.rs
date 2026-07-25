@@ -465,9 +465,12 @@ pub fn touch_last_viewed(state: State<'_, AppState>, media_id: String) -> Result
     Ok(())
 }
 
-/// Drops one item from the library for good: the original goes to the operating
-/// system's recycle bin (so a mistake is still recoverable outside Hive), the
-/// generated thumbnails are deleted outright, and every database row goes with it.
+/// Erases one item for good: the original file, its thumbnails and every
+/// database row.
+///
+/// This really deletes — nothing is moved to the operating system's recycle bin.
+/// Hive's own trash is the safety net, and reaching this function means the user
+/// already emptied it deliberately.
 fn purge_media(conn: &Connection, media_id: &str) -> Result<(), String> {
     let source_path: String = conn
         .query_row(
@@ -487,7 +490,7 @@ fn purge_media(conn: &Connection, media_id: &str) -> Result<(), String> {
         .collect();
 
     if std::path::Path::new(&source_path).exists() {
-        trash::delete(&source_path).map_err(|e| e.to_string())?;
+        std::fs::remove_file(&source_path).map_err(|e| e.to_string())?;
     }
     for path in thumbnail_paths {
         let _ = std::fs::remove_file(path);

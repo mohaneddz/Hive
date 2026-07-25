@@ -13,36 +13,82 @@ use tauri::{AppHandle, State};
 /// a copy is the offered default.
 const JPEG_QUALITY: u8 = 95;
 
-/// Applies the colour adjustments, in the same order the CSS `filter` shorthand
-/// applies them: brightness, then contrast, then saturation.
-fn adjust_colour(image: DynamicImage, ops: &EditOps) -> DynamicImage {
-    let untouched = (ops.brightness - 1.0).abs() < f32::EPSILON
+/// The colour pipeline, applied to one pixel.
+///
+/// Order matters and is fixed: **brightness → contrast → saturation → grayscale
+/// → sepia → temperature**. `applyColour` in the editor runs the exact same
+/// steps in the exact same order, which is what keeps the live preview honest.
+pub fn adjust_pixel(rgb: [f32; 3], ops: &EditOps) -> [f32; 3] {
+    let mut channels = rgb;
+
+    for value in &mut channels {
+        *value *= ops.brightness;
+        *value = (*value - 0.5) * ops.contrast + 0.5;
+    }
+
+    // Rec. 709 luma, the same coefficients the CSS saturate() filter uses.
+    let luma = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+    for value in &mut channels {
+        *value = luma + (*value - luma) * ops.saturation;
+    }
+
+    if ops.grayscale > 0.0 {
+        let grey = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+        for value in &mut channels {
+            *value += (grey - *value) * ops.grayscale;
+        }
+    }
+
+    if ops.sepia > 0.0 {
+        // The matrix from the CSS Filter Effects specification.
+        let [r, g, b] = channels;
+        let toned = [
+            0.393 * r + 0.769 * g + 0.189 * b,
+            0.349 * r + 0.686 * g + 0.168 * b,
+            0.272 * r + 0.534 * g + 0.131 * b,
+        ];
+        for (index, value) in channels.iter_mut().enumerate() {
+            *value += (toned[index] - *value) * ops.sepia;
+        }
+    }
+
+    if ops.temperature != 0.0 {
+        // Warm lifts red and drops blue; cool does the reverse. A third of the
+        // channel at full strength is a visible shift that still looks like a
+        // photograph.
+        let shift = ops.temperature * 0.3;
+        channels[0] *= 1.0 + shift;
+        channels[2] *= 1.0 - shift;
+    }
+
+    channels
+}
+
+fn is_neutral(ops: &EditOps) -> bool {
+    (ops.brightness - 1.0).abs() < f32::EPSILON
         && (ops.contrast - 1.0).abs() < f32::EPSILON
-        && (ops.saturation - 1.0).abs() < f32::EPSILON;
-    if untouched {
+        && (ops.saturation - 1.0).abs() < f32::EPSILON
+        && ops.grayscale.abs() < f32::EPSILON
+        && ops.sepia.abs() < f32::EPSILON
+        && ops.temperature.abs() < f32::EPSILON
+}
+
+fn adjust_colour(image: DynamicImage, ops: &EditOps) -> DynamicImage {
+    if is_neutral(ops) {
         return image;
     }
 
     let mut buffer = image.to_rgba8();
     for pixel in buffer.pixels_mut() {
-        let mut channels = [
-            pixel[0] as f32 / 255.0,
-            pixel[1] as f32 / 255.0,
-            pixel[2] as f32 / 255.0,
-        ];
-
-        for value in &mut channels {
-            *value *= ops.brightness;
-            *value = (*value - 0.5) * ops.contrast + 0.5;
-        }
-
-        // Rec. 709 luma, the same coefficients the CSS saturate() filter uses.
-        let luma = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
-        for value in &mut channels {
-            *value = luma + (*value - luma) * ops.saturation;
-        }
-
-        for (index, value) in channels.iter().enumerate() {
+        let adjusted = adjust_pixel(
+            [
+                pixel[0] as f32 / 255.0,
+                pixel[1] as f32 / 255.0,
+                pixel[2] as f32 / 255.0,
+            ],
+            ops,
+        );
+        for (index, value) in adjusted.iter().enumerate() {
             pixel[index] = (value.clamp(0.0, 1.0) * 255.0).round() as u8;
         }
     }
@@ -254,6 +300,9 @@ mod tests {
             brightness: 1.0,
             contrast: 1.0,
             saturation: 1.0,
+            grayscale: 0.0,
+            sepia: 0.0,
+            temperature: 0.0,
         }
     }
 
@@ -318,6 +367,47 @@ mod tests {
         let pixel = flat.to_rgba8().get_pixel(0, 0).0;
         assert_eq!(pixel[0], pixel[1], "fully desaturated pixels are grey");
         assert_eq!(pixel[1], pixel[2]);
+    }
+
+    #[test]
+    fn full_grayscale_flattens_every_channel() {
+        let red = DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            2,
+            2,
+            image::Rgba([220, 40, 60, 255]),
+        ));
+        let flat = apply_ops(red, &EditOps { grayscale: 1.0, ..ops() });
+        let pixel = flat.to_rgba8().get_pixel(0, 0).0;
+        assert_eq!(pixel[0], pixel[1]);
+        assert_eq!(pixel[1], pixel[2]);
+    }
+
+    #[test]
+    fn sepia_warms_a_grey_towards_orange() {
+        let grey = grey_square();
+        let toned = apply_ops(grey, &EditOps { sepia: 1.0, ..ops() });
+        let pixel = toned.to_rgba8().get_pixel(0, 0).0;
+        assert!(pixel[0] > pixel[1], "red should lead");
+        assert!(pixel[1] > pixel[2], "blue should trail");
+    }
+
+    #[test]
+    fn temperature_moves_red_and_blue_in_opposite_directions() {
+        let warm = apply_ops(grey_square(), &EditOps { temperature: 1.0, ..ops() });
+        let warm_pixel = warm.to_rgba8().get_pixel(0, 0).0;
+        assert!(warm_pixel[0] > 128 && warm_pixel[2] < 128);
+
+        let cool = apply_ops(grey_square(), &EditOps { temperature: -1.0, ..ops() });
+        let cool_pixel = cool.to_rgba8().get_pixel(0, 0).0;
+        assert!(cool_pixel[0] < 128 && cool_pixel[2] > 128);
+    }
+
+    #[test]
+    fn the_neutral_check_covers_every_new_field() {
+        assert!(is_neutral(&ops()));
+        assert!(!is_neutral(&EditOps { grayscale: 0.5, ..ops() }));
+        assert!(!is_neutral(&EditOps { sepia: 0.5, ..ops() }));
+        assert!(!is_neutral(&EditOps { temperature: 0.5, ..ops() }));
     }
 
     #[test]
