@@ -1,5 +1,6 @@
 import { Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { MediaCard } from "@/components/media/MediaCard";
 import { getMediaPage, searchMedia } from "@/lib/tauri";
@@ -14,11 +15,18 @@ const TYPE_FILTERS: { label: string; value: MediaType | "all" }[] = [
 ];
 
 export function SearchPage() {
-  const [query, setQuery] = useState("");
+  const [searchParams] = useSearchParams();
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [mediaType, setMediaType] = useState<MediaType | "all">("all");
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [favoritesOnly, setFavoritesOnly] = useState(() => searchParams.get("favorites") === "1");
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fromUrl = searchParams.get("q");
+    if (fromUrl && fromUrl !== query) setQuery(fromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
