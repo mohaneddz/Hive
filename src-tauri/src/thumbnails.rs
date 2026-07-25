@@ -52,7 +52,7 @@ pub fn generate_for_image(
     Ok(true)
 }
 
-fn ffmpeg_available() -> bool {
+pub fn ffmpeg_available() -> bool {
     static AVAILABLE: OnceLock<bool> = OnceLock::new();
     *AVAILABLE.get_or_init(|| {
         std::process::Command::new("ffmpeg")
