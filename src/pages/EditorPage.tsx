@@ -1,0 +1,483 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { confirm } from "@tauri-apps/plugin-dialog";
+import {
+  ArrowLeft,
+  Check,
+  Crop,
+  FlipHorizontal,
+  FlipVertical,
+  Info,
+  RotateCcw,
+  RotateCw,
+  Save,
+  Sliders,
+  Tag,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/Button";
+import { SaveEditDialog } from "@/components/editor/SaveEditDialog";
+import {
+  applyEdits,
+  getMediaDetail,
+  readMediaUrl,
+  updateMediaMetadata,
+} from "@/lib/tauri";
+import { NEUTRAL_EDIT_OPS, type EditOps, type MediaItem, type SaveMode } from "@/types/media";
+import { cn } from "@/utils/cn";
+import { formatDate } from "@/utils/format";
+
+type Tab = "adjust" | "crop" | "metadata";
+
+const TABS: { key: Tab; label: string; icon: typeof Sliders }[] = [
+  { key: "adjust", label: "Adjust", icon: Sliders },
+  { key: "crop", label: "Frame", icon: Crop },
+  { key: "metadata", label: "Details", icon: Tag },
+];
+
+const SLIDERS: { key: "brightness" | "contrast" | "saturation"; label: string }[] = [
+  { key: "brightness", label: "Brightness" },
+  { key: "contrast", label: "Contrast" },
+  { key: "saturation", label: "Saturation" },
+];
+
+const CROP_PRESETS: { label: string; ratio: number | null }[] = [
+  { label: "Free", ratio: null },
+  { label: "Square", ratio: 1 },
+  { label: "4:3", ratio: 4 / 3 },
+  { label: "3:2", ratio: 3 / 2 },
+  { label: "16:9", ratio: 16 / 9 },
+];
+
+/** The crop rectangle a preset produces, centred and as large as it fits. */
+function centredCrop(ratio: number | null, frameRatio: number) {
+  if (ratio === null) return null;
+  const relative = ratio / frameRatio;
+  return relative >= 1
+    ? { x: 0, y: (1 - 1 / relative) / 2, width: 1, height: 1 / relative }
+    : { x: (1 - relative) / 2, y: 0, width: relative, height: 1 };
+}
+
+function isNeutral(ops: EditOps): boolean {
+  return (
+    ops.rotation === 0 &&
+    !ops.flipHorizontal &&
+    !ops.flipVertical &&
+    ops.crop === null &&
+    ops.brightness === 1 &&
+    ops.contrast === 1 &&
+    ops.saturation === 1
+  );
+}
+
+export function EditorPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+
+  const [item, setItem] = useState<MediaItem | null>(null);
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [ops, setOps] = useState<EditOps>(NEUTRAL_EDIT_OPS);
+  const [tab, setTab] = useState<Tab>("adjust");
+  const [askingSave, setAskingSave] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [takenAtOverride, setTakenAtOverride] = useState("");
+  const [savingMetadata, setSavingMetadata] = useState(false);
+
+  const frameRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    void getMediaDetail(id).then((detail) => {
+      if (cancelled) return;
+      setItem(detail);
+      setTitle(detail.title ?? "");
+      setDescription(detail.description ?? "");
+      setTakenAtOverride(detail.takenAtOverride?.slice(0, 10) ?? "");
+    });
+
+    // The 800px render is what the editor works against: full-size originals can
+    // be 50 megapixels, and a preview does not need them.
+    void readMediaUrl(id, "md")
+      .then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        objectUrl = url;
+        setSourceUrl(url);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [id]);
+
+  const rotate = (degrees: number) =>
+    // Rotating re-frames the picture, so any crop drawn on the old orientation
+    // no longer means what it did.
+    setOps((prev) => ({ ...prev, rotation: (prev.rotation + degrees + 360) % 360, crop: null }));
+
+  const quarterTurned = ops.rotation === 90 || ops.rotation === 270;
+
+  const applyPreset = useCallback(
+    (ratio: number | null) => {
+      const frame = frameRef.current;
+      const naturalRatio = item?.width && item?.height ? item.width / item.height : 1;
+      const frameRatio = quarterTurned ? 1 / naturalRatio : naturalRatio;
+      void frame;
+      setOps((prev) => ({ ...prev, crop: centredCrop(ratio, frameRatio) }));
+    },
+    [item, quarterTurned],
+  );
+
+  /** Mirrors `apply_ops` in Rust: rotate → flip → crop → colour. */
+  const previewStyle = useMemo(
+    () => ({
+      transform: [
+        `rotate(${ops.rotation}deg)`,
+        ops.flipHorizontal ? "scaleX(-1)" : "",
+        ops.flipVertical ? "scaleY(-1)" : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      filter: `brightness(${ops.brightness}) contrast(${ops.contrast}) saturate(${ops.saturation})`,
+    }),
+    [ops],
+  );
+
+  const save = async (mode: SaveMode) => {
+    if (!id) return;
+    setSaving(true);
+    try {
+      const result = await applyEdits(id, ops, mode);
+      setAskingSave(false);
+      navigate(`/media/${result.id}`);
+    } catch (cause) {
+      await confirm(String(cause), { title: "Could not save", kind: "error" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveMetadata = async () => {
+    if (!id) return;
+    setSavingMetadata(true);
+    try {
+      const updated = await updateMediaMetadata(
+        id,
+        title || null,
+        description || null,
+        takenAtOverride ? new Date(takenAtOverride).toISOString() : null,
+      );
+      setItem(updated);
+    } finally {
+      setSavingMetadata(false);
+    }
+  };
+
+  if (!item) {
+    return <div className="grid h-full place-items-center text-sm text-ink-muted">Loading…</div>;
+  }
+
+  return (
+    <div className="-mx-8 -my-7 flex h-[calc(100vh-40px)] flex-col bg-black/90">
+      <div className="flex items-center justify-between gap-4 px-6 py-4 text-white">
+        <button
+          onClick={() => navigate(`/media/${item.id}`)}
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-white/70 transition hover:text-white"
+        >
+          <ArrowLeft size={14} /> Back to photo
+        </button>
+        <p className="min-w-0 truncate text-sm font-bold">{item.filename}</p>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => setOps(NEUTRAL_EDIT_OPS)}
+            disabled={isNeutral(ops)}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/20 disabled:opacity-40"
+          >
+            <RotateCcw size={15} /> Reset
+          </button>
+          <Button icon={<Save size={15} />} onClick={() => setAskingSave(true)} disabled={isNeutral(ops)}>
+            Save…
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1">
+        <div ref={frameRef} className="relative grid flex-1 place-items-center overflow-hidden p-8">
+          {sourceUrl && (
+            <div className="relative">
+              <img
+                src={sourceUrl}
+                alt={item.filename}
+                style={previewStyle}
+                className="max-h-[calc(100vh-220px)] max-w-full object-contain transition-[filter,transform] duration-150"
+              />
+              {ops.crop && (
+                <>
+                  {/* Everything outside the crop is dimmed rather than hidden, so
+                      you can still see what you are cutting away. */}
+                  <div className="pointer-events-none absolute inset-0 bg-black/55" />
+                  <div
+                    className="pointer-events-none absolute border-2 border-honey shadow-[0_0_0_9999px_rgba(0,0,0,0)]"
+                    style={{
+                      left: `${ops.crop.x * 100}%`,
+                      top: `${ops.crop.y * 100}%`,
+                      width: `${ops.crop.width * 100}%`,
+                      height: `${ops.crop.height * 100}%`,
+                      boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)",
+                    }}
+                  />
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-white/10 bg-panel">
+          <div className="flex items-center gap-1 border-b border-ink/[.08] p-3">
+            {TABS.map((entry) => (
+              <button
+                key={entry.key}
+                onClick={() => setTab(entry.key)}
+                className={cn(
+                  "inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[11px] font-bold text-ink-muted transition",
+                  tab === entry.key && "bg-cream text-honey-deep",
+                )}
+              >
+                <entry.icon size={13} />
+                {entry.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ----------------------------------------------------- adjust -- */}
+          {tab === "adjust" && (
+            <div className="space-y-6 p-5">
+              <div>
+                <p className="mb-2.5 text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-muted">
+                  Orientation
+                </p>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { icon: RotateCcw, label: "Rotate left", onClick: () => rotate(-90) },
+                    { icon: RotateCw, label: "Rotate right", onClick: () => rotate(90) },
+                    {
+                      icon: FlipHorizontal,
+                      label: "Flip horizontal",
+                      onClick: () => setOps((p) => ({ ...p, flipHorizontal: !p.flipHorizontal })),
+                      active: ops.flipHorizontal,
+                    },
+                    {
+                      icon: FlipVertical,
+                      label: "Flip vertical",
+                      onClick: () => setOps((p) => ({ ...p, flipVertical: !p.flipVertical })),
+                      active: ops.flipVertical,
+                    },
+                  ].map((button) => (
+                    <button
+                      key={button.label}
+                      onClick={button.onClick}
+                      aria-label={button.label}
+                      title={button.label}
+                      className={cn(
+                        "grid h-10 place-items-center rounded-xl border transition",
+                        button.active
+                          ? "border-honey bg-cream/55 text-honey-deep"
+                          : "border-ink/[.1] bg-canvas text-ink hover:border-honey/40",
+                      )}
+                    >
+                      <button.icon size={15} />
+                    </button>
+                  ))}
+                </div>
+                {ops.rotation !== 0 && (
+                  <p className="mt-2 text-[11px] text-ink-muted">Rotated {ops.rotation}°</p>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-muted">
+                  Light and colour
+                </p>
+                {SLIDERS.map((slider) => (
+                  <label key={slider.key} className="block">
+                    <span className="mb-1.5 flex items-center justify-between text-[11px] font-bold">
+                      <span className="text-ink">{slider.label}</span>
+                      <span className="text-ink-muted">{Math.round(ops[slider.key] * 100)}%</span>
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2}
+                      step={0.01}
+                      value={ops[slider.key]}
+                      onChange={(event) =>
+                        setOps((prev) => ({ ...prev, [slider.key]: Number(event.target.value) }))
+                      }
+                      onDoubleClick={() => setOps((prev) => ({ ...prev, [slider.key]: 1 }))}
+                      className="w-full accent-[var(--color-honey)]"
+                    />
+                  </label>
+                ))}
+                <p className="text-[10px] text-ink-muted">
+                  Double-click a slider to send it back to 100%.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ------------------------------------------------------- crop -- */}
+          {tab === "crop" && (
+            <div className="space-y-5 p-5">
+              <div>
+                <p className="mb-2.5 text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-muted">
+                  Aspect ratio
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {CROP_PRESETS.map((presetOption) => (
+                    <button
+                      key={presetOption.label}
+                      onClick={() => applyPreset(presetOption.ratio)}
+                      className="rounded-xl border border-ink/[.1] bg-canvas px-2 py-2 text-[11px] font-bold text-ink transition hover:border-honey/40"
+                    >
+                      {presetOption.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {ops.crop && (
+                <div className="space-y-3.5">
+                  <p className="text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-muted">
+                    Fine tune
+                  </p>
+                  {(
+                    [
+                      ["x", "Left"],
+                      ["y", "Top"],
+                      ["width", "Width"],
+                      ["height", "Height"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label key={key} className="block">
+                      <span className="mb-1 flex items-center justify-between text-[11px] font-bold">
+                        <span className="text-ink">{label}</span>
+                        <span className="text-ink-muted">
+                          {Math.round((ops.crop?.[key] ?? 0) * 100)}%
+                        </span>
+                      </span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={ops.crop?.[key] ?? 0}
+                        onChange={(event) =>
+                          setOps((prev) =>
+                            prev.crop
+                              ? { ...prev, crop: { ...prev.crop, [key]: Number(event.target.value) } }
+                              : prev,
+                          )
+                        }
+                        className="w-full accent-[var(--color-honey)]"
+                      />
+                    </label>
+                  ))}
+                  <button
+                    onClick={() => setOps((prev) => ({ ...prev, crop: null }))}
+                    className="text-[11px] font-bold text-honey-deep underline-offset-2 hover:underline"
+                  >
+                    Clear the crop
+                  </button>
+                </div>
+              )}
+
+              {!ops.crop && (
+                <p className="rounded-2xl border border-dashed border-ink/[.14] p-4 text-[11px] text-ink-muted">
+                  Pick a ratio to start cropping. The dimmed area is what gets cut away.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* --------------------------------------------------- metadata -- */}
+          {tab === "metadata" && (
+            <div className="space-y-4 p-5">
+              <label className="block">
+                <span className="mb-1.5 block text-[11px] font-bold text-ink">Title</span>
+                <input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  placeholder="Untitled"
+                  className="search-input !pl-3.5"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1.5 block text-[11px] font-bold text-ink">Description</span>
+                <textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  rows={4}
+                  placeholder="What is happening in this photo?"
+                  className="w-full rounded-xl border border-ink/[.12] bg-canvas p-3 text-xs text-ink outline-none focus:border-honey/65"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1.5 block text-[11px] font-bold text-ink">Capture date</span>
+                <input
+                  type="date"
+                  value={takenAtOverride}
+                  onChange={(event) => setTakenAtOverride(event.target.value)}
+                  className="search-input !pl-3.5"
+                />
+                <span className="mt-1.5 block text-[10px] text-ink-muted">
+                  {item.takenAt
+                    ? `Read from the photo: ${formatDate(item.takenAt)}`
+                    : "This photo carries no capture date."}
+                  {" Leave empty to keep it."}
+                </span>
+              </label>
+
+              <Button
+                className="w-full"
+                icon={savingMetadata ? undefined : <Check size={15} />}
+                onClick={saveMetadata}
+                disabled={savingMetadata}
+              >
+                {savingMetadata ? "Saving…" : "Save details"}
+              </Button>
+
+              <p className="flex items-start gap-2 rounded-2xl border border-ink/[.08] bg-canvas p-3 text-[10px] leading-relaxed text-ink-muted">
+                <Info size={13} className="mt-0.5 shrink-0" />
+                <span>
+                  These are stored by Hive, not written into the photo file — so nothing is
+                  re-encoded and your original stays byte-for-byte intact.
+                </span>
+              </p>
+            </div>
+          )}
+        </aside>
+      </div>
+
+      {askingSave && (
+        <SaveEditDialog
+          filename={item.filename}
+          saving={saving}
+          onCancel={() => setAskingSave(false)}
+          onConfirm={save}
+        />
+      )}
+    </div>
+  );
+}
