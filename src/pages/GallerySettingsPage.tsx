@@ -1,4 +1,4 @@
-import { Download, FolderOpen, Image, ImageOff, Monitor, Moon, Palette, Plus, RefreshCw, ScanText, Sparkles, Sun, Trash2, Users } from "lucide-react";
+import { Download, FolderOpen, Image, ImageOff, Monitor, Moon, Palette, Pause, Play, Plus, RefreshCw, ScanText, Sparkles, Sun, Trash2, Users } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 
@@ -16,6 +16,7 @@ import {
   downloadAiModels,
   downloadFaceModels,
   downloadOcrModels,
+  setFolderWatched,
 } from "@/lib/tauri";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import { formatBytes } from "@/utils/format";
@@ -28,7 +29,7 @@ const choices: { value: Theme; label: string; icon: typeof Sun; caption: string 
 
 export function GallerySettingsPage() {
   const { theme, setTheme } = useTheme();
-  const { folders, addFolder, removeFolder, rescan } = useMediaLibrary();
+  const { folders, addFolder, removeFolder, rescan, refreshFolders } = useMediaLibrary();
   const { status: aiStatus, refresh: refreshAiStatus } = useAiStatus();
   const jobs = useJobProgress();
   const [downloading, setDownloading] = useState(false);
@@ -162,8 +163,33 @@ export function GallerySettingsPage() {
                 key={folder.id}
                 className="flex items-center gap-3 rounded-2xl border border-ink/[.08] bg-canvas p-3"
               >
-                <Image size={16} className="shrink-0 text-honey-deep" />
-                <span className="min-w-0 flex-1 truncate text-xs font-semibold text-ink">{folder.path}</span>
+                <Image
+                  size={16}
+                  className={cn("shrink-0", folder.isWatched ? "text-honey-deep" : "text-ink-muted")}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-semibold text-ink">{folder.path}</span>
+                  {!folder.isWatched && (
+                    <span className="block text-[10px] font-bold text-ink-muted">
+                      Watching paused — new files are not picked up
+                    </span>
+                  )}
+                </span>
+                <button
+                  onClick={async () => {
+                    await setFolderWatched(folder.id, !folder.isWatched);
+                    await refreshFolders();
+                  }}
+                  className="icon-button !h-8 !w-8"
+                  aria-label={
+                    folder.isWatched
+                      ? `Pause watching ${folder.path}`
+                      : `Resume watching ${folder.path}`
+                  }
+                  title={folder.isWatched ? "Pause watching" : "Resume watching"}
+                >
+                  {folder.isWatched ? <Pause size={13} /> : <Play size={13} />}
+                </button>
                 <button
                   onClick={() => rescan(folder.id)}
                   className="icon-button !h-8 !w-8"
