@@ -109,6 +109,24 @@ CREATE TABLE IF NOT EXISTS faces (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS albums (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    cover_media_id TEXT REFERENCES media_items(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS album_items (
+    album_id TEXT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    media_id TEXT NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+    added_at TEXT NOT NULL,
+    PRIMARY KEY (album_id, media_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_album_items_media ON album_items(media_id);
+CREATE INDEX IF NOT EXISTS idx_media_items_trashed ON media_items(is_trashed);
 CREATE INDEX IF NOT EXISTS idx_faces_media ON faces(media_id);
 CREATE INDEX IF NOT EXISTS idx_faces_person ON faces(person_id);
 "#;
@@ -134,6 +152,27 @@ pub fn open(db_path: &Path) -> rusqlite::Result<Connection> {
     conn.execute_batch(MIGRATIONS)?;
     ensure_column(&conn, "media_items", "phash", "TEXT")?;
     ensure_column(&conn, "media_items", "face_scanned", "INTEGER NOT NULL DEFAULT 0")?;
+    // Trash, filing and editor fields. `taken_at_override` is deliberately separate
+    // from `taken_at`: a rescan rewrites the latter from EXIF, which would silently
+    // undo a date the user corrected by hand.
+    ensure_column(&conn, "media_items", "trashed_at", "TEXT")?;
+    ensure_column(&conn, "media_items", "is_hidden", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "media_items", "is_archived", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(&conn, "media_items", "last_viewed_at", "TEXT")?;
+    ensure_column(&conn, "media_items", "title", "TEXT")?;
+    ensure_column(&conn, "media_items", "description", "TEXT")?;
+    ensure_column(&conn, "media_items", "taken_at_override", "TEXT")?;
+    ensure_column(&conn, "media_items", "edited_at", "TEXT")?;
+
+    // Indexes over the columns just added. They cannot sit in MIGRATIONS: on a
+    // database created by an earlier version those columns do not exist yet when
+    // that batch runs, and the whole open() fails.
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_media_items_viewed ON media_items(last_viewed_at);
+         CREATE INDEX IF NOT EXISTS idx_media_items_hidden ON media_items(is_hidden);
+         CREATE INDEX IF NOT EXISTS idx_media_items_archived ON media_items(is_archived);",
+    )?;
+
     Ok(conn)
 }
 
