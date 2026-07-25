@@ -9,7 +9,7 @@ import { useLibraryStats } from "@/hooks/useLibraryStats";
 import { formatBytes } from "@/utils/format";
 
 export function Sidebar() {
-  const stats = useLibraryStats();
+  const { stats } = useLibraryStats();
 
   return (
     <aside className="flex w-[236px] shrink-0 flex-col border-r border-ink/[.07] bg-shell px-3 pb-4 pt-6">
