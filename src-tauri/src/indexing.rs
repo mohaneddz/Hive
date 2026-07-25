@@ -298,8 +298,7 @@ fn upsert_fts(
     Ok(())
 }
 
-/// Replace the OCR text indexed for a media item. Wired up by the OCR pipeline (Phase 5).
-#[allow(dead_code)]
+/// Replace the OCR text indexed for a media item.
 pub fn update_fts_ocr_text(conn: &Connection, media_id: &str, ocr_text: &str) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE media_fts SET ocr_text = ?2 WHERE media_id = ?1",
