@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <g fill="none" stroke="#F5A623" stroke-width="22" stroke-linejoin="round">
+    <path d="M512 185 634 255 634 396 512 466 390 396 390 255Z"/>
+    <path d="M374 424 496 494 496 635 374 705 252 635 252 494Z"/>
+    <path d="M650 424 772 494 772 635 650 705 528 635 528 494Z"/>
+  </g>
+  <text x="512" y="854" fill="#F4F1EA" font-family="Inter, Arial, sans-serif"
+        font-size="102" font-weight="500" letter-spacing="34" text-anchor="middle">HIVE</text>
+</svg>
