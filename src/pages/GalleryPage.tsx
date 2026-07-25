@@ -60,7 +60,7 @@ export function GalleryPage() {
       />
 
       {activeJob && (
-        <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-honey/30 bg-cream/45 px-4 py-3 text-xs font-semibold text-honey-deep">
+        <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border border-honey/30 bg-honey/10 px-4 py-3 text-xs font-semibold text-honey-deep">
           <div className="flex items-center gap-3">
             <Loader2 size={15} className="animate-spin shrink-0" />
             <span>
