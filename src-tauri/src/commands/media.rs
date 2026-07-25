@@ -4,7 +4,7 @@ use crate::{db, indexing, jobs, thumbnails};
 use rusqlite::{params, Connection, OptionalExtension};
 use tauri::{AppHandle, State};
 
-fn row_to_media_item(conn: &Connection, id: &str) -> rusqlite::Result<MediaItem> {
+pub(crate) fn row_to_media_item(conn: &Connection, id: &str) -> rusqlite::Result<MediaItem> {
     let mut item = conn.query_row(
         "SELECT id, folder_id, path, filename, hash, size, width, height, duration_ms,
                 mime_type, media_type, taken_at, created_at, modified_at, indexed_at,
@@ -78,6 +78,7 @@ pub fn scan_folder(
     let db_path = state.db_path.clone();
     let app_data_dir = state.app_data_dir.clone();
     let cancelled_jobs = state.cancelled_jobs.clone();
+    let ai = state.ai.clone();
 
     let folder_path: String = {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
@@ -125,6 +126,7 @@ pub fn scan_folder(
                         &indexed.item.id,
                         path,
                     );
+                    crate::commands::ai::try_embed_image(&ai, &conn, &indexed.item.id, path);
                     let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
                 }
                 Ok(None) => {}
