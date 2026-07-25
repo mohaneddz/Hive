@@ -8,5 +8,7 @@ pub mod explorer;
 pub mod faces;
 pub mod folders;
 pub mod media;
+pub mod organize;
 pub mod places;
+pub mod quality;
 pub mod utilities;
