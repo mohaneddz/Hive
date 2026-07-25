@@ -29,6 +29,11 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
             let db_path = app_data_dir.join("hive.db");
+
+            // A restore staged during the previous session can only be applied
+            // here, before anything opens the database.
+            commands::backup::take_pending_restore(&app_data_dir, &db_path)?;
+
             let conn = db::open(&db_path)?;
 
             let existing_folders: Vec<(String, String)> = {
@@ -108,7 +113,6 @@ pub fn run() {
             commands::media::read_media_bytes,
             commands::media::set_favorite,
             commands::media::set_trashed,
-            commands::media::get_trash,
             commands::media::delete_media_permanently,
             commands::media::get_places,
             commands::media::get_library_stats,
@@ -129,6 +133,42 @@ pub fn run() {
             commands::faces::merge_people,
             commands::faces::get_person_media,
             commands::faces::read_face_crop_bytes,
+            commands::media::set_hidden,
+            commands::media::set_archived,
+            commands::media::touch_last_viewed,
+            commands::media::empty_trash,
+            commands::media::get_on_this_day,
+            commands::folders::set_folder_watched,
+            commands::albums::list_albums,
+            commands::albums::get_album,
+            commands::albums::create_album,
+            commands::albums::update_album,
+            commands::albums::delete_album,
+            commands::albums::set_album_cover,
+            commands::albums::add_media_to_album,
+            commands::albums::remove_media_from_album,
+            commands::albums::list_albums_for_media,
+            commands::places::list_places,
+            commands::places::list_media_at_place,
+            commands::explorer::list_drives,
+            commands::explorer::list_directory,
+            commands::explorer::parent_directory,
+            commands::editor::apply_edits,
+            commands::editor::update_media_metadata,
+            commands::batch::preview_batch_rename,
+            commands::batch::batch_rename,
+            commands::batch::compress_images,
+            commands::batch::convert_images,
+            commands::backup::backup_library,
+            commands::backup::inspect_backup,
+            commands::backup::restore_library,
+            commands::backup::cancel_pending_restore,
+            commands::backup::has_pending_restore,
+            commands::utilities::scan_library_health,
+            commands::utilities::remove_missing_entries,
+            commands::utilities::get_storage_stats,
+            commands::utilities::clear_thumbnail_cache,
+            commands::utilities::export_media,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hive");
