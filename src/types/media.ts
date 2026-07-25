@@ -47,13 +47,6 @@ export interface MediaPage {
   total: number;
 }
 
-export interface ScanResult {
-  folderId: string;
-  scanned: number;
-  added: number;
-  skipped: number;
-}
-
 export interface JobProgress {
   id: string;
   kind: string;
@@ -81,4 +74,11 @@ export interface LibraryStats {
   totalBytes: number;
   favorites: number;
   trashed: number;
+}
+
+export interface AiStatus {
+  modelsReady: boolean;
+  modelLoaded: boolean;
+  embeddedCount: number;
+  eligibleCount: number;
 }
