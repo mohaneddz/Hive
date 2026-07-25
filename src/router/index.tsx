@@ -1,7 +1,9 @@
 import { createHashRouter } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { AlbumDetailPage } from "@/pages/AlbumDetailPage";
 import { CollectionsPage } from "@/pages/CollectionsPage";
+import { EditorPage } from "@/pages/EditorPage";
 import { ExplorerPage } from "@/pages/ExplorerPage";
 import { GalleryPage } from "@/pages/GalleryPage";
 import { GallerySettingsPage } from "@/pages/GallerySettingsPage";
@@ -28,7 +30,9 @@ export const router = createHashRouter([
       { path: routes.search.path, element: <SearchPage /> },
       { path: routes.utilities.path, element: <UtilitiesPage /> },
       { path: routes.trash.path, element: <TrashPage /> },
+      { path: "/albums/:id", element: <AlbumDetailPage /> },
       { path: "/media/:id", element: <ViewerPage /> },
+      { path: "/media/:id/edit", element: <EditorPage /> },
       { path: routes.settings.path, element: <GallerySettingsPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
