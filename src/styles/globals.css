@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 @theme {
-  --color-honey: #e3a105;
-  --color-honey-dark: #f0b52b;
-  --color-honey-deep: #a66e00;
-  --color-cream: #f8e2bb;
+  --color-honey: #f5a623;
+  --color-honey-dark: #ffb946;
+  --color-honey-deep: #b9720a;
+  --color-cream: #fbe4bd;
   --color-canvas: var(--surface-canvas);
   --color-shell: var(--surface-shell);
   --color-panel: var(--surface-panel);
@@ -15,12 +15,12 @@
 }
 
 :root {
-  --surface-canvas: #fbfaf7;
-  --surface-shell: #f6f2e9;
+  --surface-canvas: #faf9f6;
+  --surface-shell: #f3efe6;
   --surface-panel: #ffffff;
-  --content-ink: #29271f;
-  --content-ink-soft: #59564c;
-  --content-ink-muted: #8a867b;
+  --content-ink: #221f19;
+  --content-ink-soft: #565248;
+  --content-ink-muted: #8a8578;
   color: var(--content-ink);
   background: var(--surface-canvas);
   color-scheme: light;
@@ -32,27 +32,27 @@
 }
 
 :root.dark {
-  --surface-canvas: #171714;
-  --surface-shell: #1d1c18;
-  --surface-panel: #25231e;
-  --content-ink: #f6f0e3;
-  --content-ink-soft: #d7d0c0;
-  --content-ink-muted: #aaa293;
+  --surface-canvas: #0a0a0b;
+  --surface-shell: #0d0d0e;
+  --surface-panel: #161617;
+  --content-ink: #f5f3ef;
+  --content-ink-soft: #c9c5ba;
+  --content-ink-muted: #8b8b8f;
   color-scheme: dark;
 }
 
-* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: rgb(227 161 5 / 48%) transparent; }
+* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: rgb(245 166 35 / 48%) transparent; }
 html, body, #root { height: 100%; margin: 0; overflow: hidden; }
 body { min-width: 900px; min-height: 620px; }
 button, input, textarea, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
-::selection { color: var(--content-ink); background: rgb(227 161 5 / 28%); }
+::selection { color: var(--content-ink); background: rgb(245 166 35 / 28%); }
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { min-height: 36px; border: 2px solid transparent; border-radius: 999px; background: rgb(227 161 5 / 36%); background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background: rgb(227 161 5 / 76%); background-clip: padding-box; }
+::-webkit-scrollbar-thumb { min-height: 36px; border: 2px solid transparent; border-radius: 999px; background: rgb(245 166 35 / 36%); background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: rgb(245 166 35 / 76%); background-clip: padding-box; }
 
 .titlebar { -webkit-app-region: drag; }
 .titlebar button, .titlebar a { -webkit-app-region: no-drag; }
@@ -60,19 +60,23 @@ button { cursor: pointer; }
 .window-control:hover { color: var(--content-ink); background: rgb(127 116 84 / 12%); }
 .window-control-close:hover { color: white; background: #d45542; }
 
-.sidebar-link { display: flex; height: 40px; align-items: center; gap: 11px; border: 0; border-radius: 12px; padding: 0 12px; color: var(--content-ink-muted); background: transparent; font-size: 12px; font-weight: 700; text-decoration: none; transition: color .15s ease, background-color .15s ease; }
-.sidebar-link:hover { color: var(--content-ink); background: rgb(127 116 84 / 10%); }
-.sidebar-link-active { color: var(--content-ink); background: var(--color-cream); }
+.sidebar-link { position: relative; display: flex; height: 40px; align-items: center; gap: 11px; border: 0; border-left: 2px solid transparent; border-radius: 10px; padding: 0 12px; color: var(--content-ink-muted); background: transparent; font-size: 12px; font-weight: 700; text-decoration: none; transition: color .15s ease, background-color .15s ease, border-color .15s ease; }
+.sidebar-link:hover { color: var(--content-ink); background: rgb(127 127 127 / 8%); }
+.sidebar-link-active { color: var(--content-ink); background: rgb(245 166 35 / 12%); border-left-color: var(--color-honey); }
+.sidebar-link-active svg:first-child { color: var(--color-honey); }
 .sidebar-link-active > svg:last-child { opacity: .8; }
 
 .icon-button { display: grid; size: 36px; width: 36px; height: 36px; place-items: center; border: 1px solid rgb(127 116 84 / 15%); border-radius: 11px; color: var(--content-ink-muted); background: var(--surface-panel); transition: transform .15s ease, color .15s ease, border-color .15s ease; }
-.icon-button:hover { transform: translateY(-1px); color: var(--content-ink); border-color: rgb(227 161 5 / 48%); }
+.icon-button:hover { transform: translateY(-1px); color: var(--content-ink); border-color: rgb(245 166 35 / 48%); }
 .search-input { width: 100%; height: 42px; border: 1px solid rgb(127 116 84 / 15%); border-radius: 12px; padding: 0 14px 0 39px; color: var(--content-ink); background: var(--surface-panel); outline: none; font-size: 12px; transition: border-color .15s ease, box-shadow .15s ease; }
 .search-input::placeholder { color: var(--content-ink-muted); }
-.search-input:focus { border-color: rgb(227 161 5 / 65%); box-shadow: 0 0 0 3px rgb(227 161 5 / 12%); }
+.search-input:focus { border-color: rgb(245 166 35 / 65%); box-shadow: 0 0 0 3px rgb(245 166 35 / 12%); }
 .eyebrow { margin: 0; color: var(--color-honey-deep); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-.artwork-frame { position: relative; overflow: hidden; border: 8px solid var(--surface-panel); border-radius: 19px; background: var(--surface-panel); box-shadow: 0 14px 34px rgb(75 52 10 / 10%); }
-.dark .artwork-frame { box-shadow: 0 14px 34px rgb(0 0 0 / 30%); }
+.artwork-frame { position: relative; overflow: hidden; border: 1px solid rgb(127 127 127 / 14%); border-radius: 14px; background: var(--surface-panel); box-shadow: 0 10px 26px rgb(75 52 10 / 8%); }
+.dark .artwork-frame { border-color: rgb(255 255 255 / 8%); box-shadow: 0 10px 26px rgb(0 0 0 / 40%); }
+
+.panel-card { border-radius: 18px; border: 1px solid rgb(127 127 127 / 12%); background: var(--surface-panel); }
+.dark .panel-card { border-color: rgb(255 255 255 / 7%); }
 
 @media (max-width: 1040px) { main > div { padding-inline: 24px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
