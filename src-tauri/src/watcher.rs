@@ -46,11 +46,12 @@ impl WatcherRegistry {
                     continue;
                 }
                 if let Ok(Some(indexed)) = indexing::index_file(&conn, &fid, path) {
-                    let _ = thumbnails::generate_for_image(
+                    let _ = thumbnails::generate(
                         &conn,
                         &app_data_dir,
                         &indexed.item.id,
                         path,
+                        &indexed.item.media_type,
                     );
                     newly_indexed.push((indexed.item.id, path.clone()));
                 }
