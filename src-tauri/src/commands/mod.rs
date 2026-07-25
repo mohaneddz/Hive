@@ -1,5 +1,12 @@
 pub mod ai;
+pub mod albums;
+pub mod backup;
+pub mod batch;
 pub mod duplicates;
+pub mod editor;
+pub mod explorer;
 pub mod faces;
 pub mod folders;
 pub mod media;
+pub mod places;
+pub mod utilities;
