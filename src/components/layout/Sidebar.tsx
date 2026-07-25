@@ -1,31 +1,26 @@
-import { ChevronRight, Settings } from "lucide-react";
 import { NavLink } from "react-router-dom";
+import { HardDrive } from "lucide-react";
 
 import { appConfig } from "@/config/app";
 import { navigationRoutes, routes } from "@/config/routes";
 import { cn } from "@/utils/cn";
 import { HiveMark } from "@/components/brand/HiveMark";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { useLibraryStats } from "@/hooks/useLibraryStats";
+import { formatBytes } from "@/utils/format";
 
 export function Sidebar() {
+  const stats = useLibraryStats();
+
   return (
-    <aside className="flex w-[236px] shrink-0 flex-col border-r border-ink/[.07] bg-shell px-3 pb-4 pt-5">
-      <div className="mb-7 flex items-center gap-3 px-2">
-        <HiveMark />
-        <div className="min-w-0">
-          <p className="text-sm font-extrabold leading-tight text-ink">
-            {appConfig.name}
-          </p>
-          <p className="truncate text-[10px] font-semibold text-ink-muted">
-            {appConfig.tagline}
-          </p>
-        </div>
+    <aside className="flex w-[236px] shrink-0 flex-col border-r border-ink/[.07] bg-shell px-3 pb-4 pt-6">
+      <div className="mb-6 flex flex-col items-center gap-2 px-2 text-center">
+        <HiveMark className="size-9" />
+        <p className="text-sm font-extrabold uppercase tracking-[.28em] text-ink">
+          {appConfig.name}
+        </p>
       </div>
 
-      <nav className="mt-2 space-y-1" aria-label="Main navigation">
-        <p className="mb-2 px-3 text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-muted">
-          Library
-        </p>
+      <nav className="space-y-0.5" aria-label="Main navigation">
         {navigationRoutes.map((route) => (
           <NavLink
             key={route.path}
@@ -37,26 +32,30 @@ export function Sidebar() {
           >
             <route.icon size={17} strokeWidth={1.8} />
             <span>{route.label}</span>
-            <ChevronRight className="ml-auto opacity-0" size={14} />
           </NavLink>
         ))}
       </nav>
 
       <div className="mt-auto space-y-1">
-        <div className="flex items-center gap-1">
-          <NavLink to={routes.settings.path} className={({ isActive }) => cn("sidebar-link flex-1", isActive && "sidebar-link-active")}>
-            <Settings size={17} strokeWidth={1.8} /><span>Settings</span>
-          </NavLink>
-          <ThemeToggle />
-        </div>
-        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-ink/[.07] bg-panel/70 p-2.5">
-          <div className="grid size-9 place-items-center rounded-xl bg-cream text-xs font-extrabold text-ink">
-            MA
+        <NavLink
+          to={routes.settings.path}
+          className={({ isActive }) => cn("sidebar-link", isActive && "sidebar-link-active")}
+        >
+          <routes.settings.icon size={17} strokeWidth={1.8} />
+          <span>{routes.settings.label}</span>
+        </NavLink>
+
+        <div className="mt-3 rounded-2xl border border-ink/[.07] bg-panel/70 p-3">
+          <div className="flex items-center gap-2 text-[11px] font-bold text-ink-muted">
+            <HardDrive size={14} />
+            <span>Local storage</span>
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-xs font-bold text-ink">Mohaned</p>
-            <p className="truncate text-[10px] text-ink-muted">Local library</p>
-          </div>
+          <p className="mt-1.5 text-xs font-extrabold text-ink">
+            {stats ? `${formatBytes(stats.totalBytes)} indexed` : "—"}
+          </p>
+          <p className="mt-0.5 text-[10px] text-ink-muted">
+            {stats ? `${stats.totalItems.toLocaleString()} items on this device` : "Add a folder to begin"}
+          </p>
         </div>
       </div>
     </aside>
