@@ -221,6 +221,50 @@ export interface ExportReport {
   destination: string;
 }
 
+export type TimelineGranularity = "year" | "month" | "day";
+
+export interface TimelineBucket {
+  /** The value `strftime` produced, e.g. "2024" or "2024-06". */
+  key: string;
+  label: string;
+  count: number;
+  coverMediaId: string | null;
+  start: string;
+  end: string;
+}
+
+/**
+ * A run of photos taken close together. `isTrip` marks the ones that also
+ * happened far from home; `distanceKm` is how far.
+ */
+export interface EventGroup {
+  id: string;
+  start: string;
+  end: string;
+  count: number;
+  coverMediaId: string;
+  mediaIds: string[];
+  lat: number | null;
+  lon: number | null;
+  isTrip: boolean;
+  distanceKm: number;
+}
+
+/** A photo and its sharpness score. Lower means softer. */
+export interface BlurryItem {
+  item: MediaItem;
+  score: number;
+}
+
+export interface BlurReport {
+  /** How many photos were measured during this run. */
+  scanned: number;
+  /** How many have a score at all, including from earlier runs. */
+  measured: number;
+  threshold: number;
+  items: BlurryItem[];
+}
+
 export interface AiStatus {
   modelsReady: boolean;
   modelLoaded: boolean;
