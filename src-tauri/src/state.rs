@@ -1,3 +1,4 @@
+use crate::ai::AiState;
 use crate::watcher::WatcherRegistry;
 use rusqlite::Connection;
 use std::collections::HashSet;
@@ -10,4 +11,5 @@ pub struct AppState {
     pub conn: Mutex<Connection>,
     pub watchers: WatcherRegistry,
     pub cancelled_jobs: Arc<Mutex<HashSet<String>>>,
+    pub ai: Arc<AiState>,
 }
