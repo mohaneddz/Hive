@@ -277,6 +277,14 @@ export interface BlurryItem {
   score: number;
 }
 
+/** State of the thumbnail cache. `limitBytes` of 0 means no ceiling is set. */
+export interface CacheReport {
+  usedBytes: number;
+  limitBytes: number;
+  freedBytes: number;
+  removed: number;
+}
+
 export interface BlurReport {
   /** How many photos were measured during this run. */
   scanned: number;
