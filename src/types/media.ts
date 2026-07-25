@@ -81,6 +81,9 @@ export interface AiStatus {
   modelLoaded: boolean;
   embeddedCount: number;
   eligibleCount: number;
+  ocrModelsReady: boolean;
+  ocrModelLoaded: boolean;
+  ocrIndexedCount: number;
 }
 
 export interface DuplicateGroup {
