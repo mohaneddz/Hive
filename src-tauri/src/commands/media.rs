@@ -1,4 +1,4 @@
-use crate::models::{ExifData, MediaItem, MediaPage};
+use crate::models::{ExifData, LibraryStats, MediaItem, MediaPage, PlaceCluster};
 use crate::state::AppState;
 use crate::{db, indexing, jobs, thumbnails};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -167,6 +167,7 @@ pub fn get_media_page(
     offset: i64,
     media_type: Option<String>,
     favorites_only: Option<bool>,
+    folder_id: Option<String>,
 ) -> Result<MediaPage, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
 
@@ -176,6 +177,9 @@ pub fn get_media_page(
     }
     if favorites_only.unwrap_or(false) {
         where_clauses.push("is_favorite = 1".to_string());
+    }
+    if let Some(fid) = &folder_id {
+        where_clauses.push(format!("folder_id = '{}'", fid.replace('\'', "")));
     }
     let where_sql = where_clauses.join(" AND ");
 
@@ -300,4 +304,115 @@ pub fn set_trashed(state: State<'_, AppState>, media_id: String, trashed: bool) 
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_trash(state: State<'_, AppState>, limit: i64, offset: i64) -> Result<MediaPage, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+
+    let total: i64 = conn
+        .query_row("SELECT COUNT(*) FROM media_items WHERE is_trashed = 1", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id FROM media_items WHERE is_trashed = 1
+             ORDER BY modified_at DESC LIMIT ?1 OFFSET ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    let ids: Vec<String> = stmt
+        .query_map(params![limit, offset], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let items = ids
+        .iter()
+        .map(|id| row_to_media_item(&conn, id))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(MediaPage { items, total })
+}
+
+#[tauri::command]
+pub fn delete_media_permanently(state: State<'_, AppState>, media_id: String) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+
+    let path: String = conn
+        .query_row("SELECT path FROM media_items WHERE id = ?1", params![media_id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&path);
+
+    let mut stmt = conn
+        .prepare("SELECT path FROM thumbnails WHERE media_id = ?1")
+        .map_err(|e| e.to_string())?;
+    let thumb_paths: Vec<String> = stmt
+        .query_map(params![media_id], |r| r.get(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    for thumb_path in thumb_paths {
+        let _ = std::fs::remove_file(thumb_path);
+    }
+
+    conn.execute("DELETE FROM media_items WHERE id = ?1", params![media_id])
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM media_fts WHERE media_id = ?1", params![media_id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_places(state: State<'_, AppState>) -> Result<Vec<PlaceCluster>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT ROUND(e.gps_lat, 1) AS lat, ROUND(e.gps_lon, 1) AS lon,
+                    COUNT(*) AS count, MIN(m.id) AS cover_media_id
+             FROM exif_data e
+             JOIN media_items m ON m.id = e.media_id
+             WHERE e.gps_lat IS NOT NULL AND e.gps_lon IS NOT NULL AND m.is_trashed = 0
+             GROUP BY lat, lon
+             ORDER BY count DESC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let clusters = stmt
+        .query_map([], |r| {
+            Ok(PlaceCluster {
+                lat: r.get(0)?,
+                lon: r.get(1)?,
+                count: r.get(2)?,
+                cover_media_id: r.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(clusters)
+}
+
+#[tauri::command]
+pub fn get_library_stats(state: State<'_, AppState>) -> Result<LibraryStats, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    conn.query_row(
+        "SELECT
+            (SELECT COUNT(*) FROM media_items WHERE is_trashed = 0),
+            (SELECT COALESCE(SUM(size), 0) FROM media_items WHERE is_trashed = 0),
+            (SELECT COUNT(*) FROM media_items WHERE is_favorite = 1 AND is_trashed = 0),
+            (SELECT COUNT(*) FROM media_items WHERE is_trashed = 1)",
+        [],
+        |r| {
+            Ok(LibraryStats {
+                total_items: r.get(0)?,
+                total_bytes: r.get(1)?,
+                favorites: r.get(2)?,
+                trashed: r.get(3)?,
+            })
+        },
+    )
+    .map_err(|e| e.to_string())
 }

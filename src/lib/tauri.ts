@@ -1,11 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { Folder, MediaItem, MediaPage, ScanResult } from "@/types/media";
+import type {
+  Folder,
+  FolderStats,
+  LibraryStats,
+  MediaItem,
+  MediaPage,
+  PlaceCluster,
+} from "@/types/media";
 
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 export function listFolders(): Promise<Folder[]> {
   return invoke("list_folders");
+}
+
+export function listFoldersWithStats(): Promise<FolderStats[]> {
+  return invoke("list_folders_with_stats");
 }
 
 export function addWatchedFolder(path: string): Promise<Folder> {
@@ -29,8 +40,25 @@ export function getMediaPage(options: {
   offset: number;
   mediaType?: string;
   favoritesOnly?: boolean;
+  folderId?: string;
 }): Promise<MediaPage> {
   return invoke("get_media_page", options);
+}
+
+export function getTrash(limit: number, offset: number): Promise<MediaPage> {
+  return invoke("get_trash", { limit, offset });
+}
+
+export function deleteMediaPermanently(mediaId: string): Promise<void> {
+  return invoke("delete_media_permanently", { mediaId });
+}
+
+export function getPlaces(): Promise<PlaceCluster[]> {
+  return invoke("get_places");
+}
+
+export function getLibraryStats(): Promise<LibraryStats> {
+  return invoke("get_library_stats");
 }
 
 export function getMediaDetail(mediaId: string): Promise<MediaItem> {

@@ -61,6 +61,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::folders::list_folders,
+            commands::folders::list_folders_with_stats,
             commands::folders::add_watched_folder,
             commands::folders::remove_watched_folder,
             commands::media::scan_folder,
@@ -71,6 +72,10 @@ pub fn run() {
             commands::media::read_media_bytes,
             commands::media::set_favorite,
             commands::media::set_trashed,
+            commands::media::get_trash,
+            commands::media::delete_media_permanently,
+            commands::media::get_places,
+            commands::media::get_library_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hive");

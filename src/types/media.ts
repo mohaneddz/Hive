@@ -62,3 +62,23 @@ export interface JobProgress {
   total: number;
   message: string | null;
 }
+
+export interface FolderStats {
+  folder: Folder;
+  itemCount: number;
+  coverMediaId: string | null;
+}
+
+export interface PlaceCluster {
+  lat: number;
+  lon: number;
+  count: number;
+  coverMediaId: string;
+}
+
+export interface LibraryStats {
+  totalItems: number;
+  totalBytes: number;
+  favorites: number;
+  trashed: number;
+}
