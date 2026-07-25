@@ -163,6 +163,8 @@ pub fn open(db_path: &Path) -> rusqlite::Result<Connection> {
     ensure_column(&conn, "media_items", "description", "TEXT")?;
     ensure_column(&conn, "media_items", "taken_at_override", "TEXT")?;
     ensure_column(&conn, "media_items", "edited_at", "TEXT")?;
+    // Sharpness, measured once and kept so a rescan is instant.
+    ensure_column(&conn, "media_items", "blur_score", "REAL")?;
 
     // Indexes over the columns just added. They cannot sit in MIGRATIONS: on a
     // database created by an earlier version those columns do not exist yet when
