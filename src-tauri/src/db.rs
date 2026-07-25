@@ -91,11 +91,26 @@ CREATE TABLE IF NOT EXISTS embeddings (
 );
 "#;
 
+/// Adds `column` to `table` if it isn't there yet. `CREATE TABLE IF NOT EXISTS` in MIGRATIONS
+/// is idempotent for new tables, but `ALTER TABLE ADD COLUMN` isn't — this covers the "existing
+/// table gains a column" case for schema evolution without a full migration-versioning system.
+fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let existing: Vec<String> = stmt
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !existing.iter().any(|c| c == column) {
+        conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"), [])?;
+    }
+    Ok(())
+}
+
 pub fn open(db_path: &Path) -> rusqlite::Result<Connection> {
     let conn = Connection::open(db_path)?;
     conn.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))?;
     conn.pragma_update(None, "foreign_keys", true)?;
     conn.execute_batch(MIGRATIONS)?;
+    ensure_column(&conn, "media_items", "phash", "TEXT")?;
     Ok(conn)
 }
 
