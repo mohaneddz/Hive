@@ -4,6 +4,8 @@ import { ImageOff } from "lucide-react";
 import { readMediaUrl } from "@/lib/tauri";
 import { cn } from "@/utils/cn";
 
+type Stage = "loading" | "ready" | "fallback" | "failed";
+
 export function MediaThumb({
   mediaId,
   variant = "sm",
@@ -16,13 +18,13 @@ export function MediaThumb({
   className?: string;
 }) {
   const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [stage, setStage] = useState<Stage>("loading");
 
   useEffect(() => {
     let cancelled = false;
     let objectUrl: string | null = null;
     setUrl(null);
-    setFailed(false);
+    setStage("loading");
 
     readMediaUrl(mediaId, variant)
       .then((created) => {
@@ -32,9 +34,28 @@ export function MediaThumb({
         }
         objectUrl = created;
         setUrl(created);
+        setStage("ready");
       })
       .catch(() => {
-        if (!cancelled) setFailed(true);
+        // No thumbnail row for this variant (e.g. generation failed or hasn't run yet) — fall
+        // back to the full-resolution original rather than showing a permanently broken tile.
+        if (cancelled || variant === "original") {
+          if (!cancelled) setStage("failed");
+          return;
+        }
+        readMediaUrl(mediaId, "original")
+          .then((created) => {
+            if (cancelled) {
+              URL.revokeObjectURL(created);
+              return;
+            }
+            objectUrl = created;
+            setUrl(created);
+            setStage("fallback");
+          })
+          .catch(() => {
+            if (!cancelled) setStage("failed");
+          });
       });
 
     return () => {
@@ -43,7 +64,7 @@ export function MediaThumb({
     };
   }, [mediaId, variant]);
 
-  if (failed) {
+  if (stage === "failed") {
     return (
       <div className={cn("grid place-items-center bg-shell text-ink-muted", className)}>
         <ImageOff size={20} />
@@ -55,5 +76,5 @@ export function MediaThumb({
     return <div className={cn("animate-pulse bg-shell", className)} />;
   }
 
-  return <img src={url} alt={alt} className={className} />;
+  return <img src={url} alt={alt} className={className} onError={() => setStage("failed")} />;
 }
