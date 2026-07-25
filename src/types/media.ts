@@ -84,9 +84,20 @@ export interface AiStatus {
   ocrModelsReady: boolean;
   ocrModelLoaded: boolean;
   ocrIndexedCount: number;
+  faceModelsReady: boolean;
+  faceModelLoaded: boolean;
+  facesIndexedCount: number;
+  peopleCount: number;
 }
 
 export interface DuplicateGroup {
   groupId: string;
   items: MediaItem[];
+}
+
+export interface PersonSummary {
+  id: string;
+  name: string | null;
+  faceCount: number;
+  coverFaceId: string;
 }

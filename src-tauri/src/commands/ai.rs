@@ -19,6 +19,10 @@ pub struct AiStatus {
     pub ocr_models_ready: bool,
     pub ocr_model_loaded: bool,
     pub ocr_indexed_count: i64,
+    pub face_models_ready: bool,
+    pub face_model_loaded: bool,
+    pub faces_indexed_count: i64,
+    pub people_count: i64,
 }
 
 #[tauri::command]
@@ -27,6 +31,8 @@ pub fn get_ai_status(state: State<'_, AppState>) -> Result<AiStatus, String> {
     let model_loaded = state.ai.clip.lock().unwrap().is_some();
     let ocr_models_ready = model_manager::ocr_models_ready(&state.app_data_dir);
     let ocr_model_loaded = state.ai.ocr.lock().unwrap().is_some();
+    let face_models_ready = model_manager::face_models_ready(&state.app_data_dir);
+    let face_model_loaded = state.ai.face.lock().unwrap().is_some();
 
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let embedded_count: i64 = conn
@@ -46,6 +52,16 @@ pub fn get_ai_status(state: State<'_, AppState>) -> Result<AiStatus, String> {
             |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
+    let faces_indexed_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM media_items WHERE media_type = 'image' AND is_trashed = 0 AND face_scanned = 1",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let people_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM people", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
 
     Ok(AiStatus {
         models_ready,
@@ -53,6 +69,10 @@ pub fn get_ai_status(state: State<'_, AppState>) -> Result<AiStatus, String> {
         embedded_count,
         eligible_count,
         ocr_models_ready,
+        face_models_ready,
+        face_model_loaded,
+        faces_indexed_count,
+        people_count,
         ocr_model_loaded,
         ocr_indexed_count,
     })
@@ -198,48 +218,59 @@ pub async fn backfill_embeddings(app: AppHandle, state: State<'_, AppState>) -> 
 
     let db_path = state.db_path.clone();
     let ai = state.ai.clone();
+    let cancelled_jobs = state.cancelled_jobs.clone();
 
-    let conn = crate::db::open(&db_path).map_err(|e| e.to_string())?;
-    let job_id = jobs::create_job(&conn, "embed_backfill").map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let conn = crate::db::open(&db_path).map_err(|e| e.to_string())?;
+        let job_id = jobs::create_job(&conn, "embed_backfill").map_err(|e| e.to_string())?;
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT m.id, m.path FROM media_items m
-             LEFT JOIN embeddings e ON e.media_id = m.id
-             WHERE m.media_type = 'image' AND m.is_trashed = 0 AND e.media_id IS NULL",
-        )
-        .map_err(|e| e.to_string())?;
-    let pending: Vec<(String, String)> = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-    drop(stmt);
+        let mut stmt = conn
+            .prepare(
+                "SELECT m.id, m.path FROM media_items m
+                 LEFT JOIN embeddings e ON e.media_id = m.id
+                 WHERE m.media_type = 'image' AND m.is_trashed = 0 AND e.media_id IS NULL",
+            )
+            .map_err(|e| e.to_string())?;
+        let pending: Vec<(String, String)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        drop(stmt);
 
-    let total = pending.len() as i64;
-    for (i, (media_id, path)) in pending.iter().enumerate() {
-        let mut guard = ai.clip.lock().unwrap();
-        if let Some(model) = guard.as_mut() {
-            if let Ok(vector) = model.embed_image(std::path::Path::new(path)) {
-                let _ = store_embedding(&conn, media_id, &vector);
+        let total = pending.len() as i64;
+        for (i, (media_id, path)) in pending.iter().enumerate() {
+            if cancelled_jobs.lock().unwrap().remove(&job_id) {
+                jobs::cancel_job(&conn, &job_id);
+                jobs::emit_progress(&app, &conn, &job_id, "embed_backfill", "cancelled", i as i64, total, None);
+                return Ok(());
             }
+
+            let mut guard = ai.clip.lock().unwrap();
+            if let Some(model) = guard.as_mut() {
+                if let Ok(vector) = model.embed_image(std::path::Path::new(path)) {
+                    let _ = store_embedding(&conn, media_id, &vector);
+                }
+            }
+            drop(guard);
+
+            jobs::emit_progress(
+                &app,
+                &conn,
+                &job_id,
+                "embed_backfill",
+                "running",
+                i as i64 + 1,
+                total,
+                None,
+            );
         }
-        drop(guard);
 
-        jobs::emit_progress(
-            &app,
-            &conn,
-            &job_id,
-            "embed_backfill",
-            "running",
-            i as i64 + 1,
-            total,
-            None,
-        );
-    }
-
-    jobs::emit_progress(&app, &conn, &job_id, "embed_backfill", "completed", total, total, None);
-    Ok(())
+        jobs::emit_progress(&app, &conn, &job_id, "embed_backfill", "completed", total, total, None);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -318,31 +349,41 @@ pub async fn backfill_ocr(app: AppHandle, state: State<'_, AppState>) -> Result<
 
     let db_path = state.db_path.clone();
     let ai = state.ai.clone();
+    let cancelled_jobs = state.cancelled_jobs.clone();
 
-    let conn = crate::db::open(&db_path).map_err(|e| e.to_string())?;
-    let job_id = jobs::create_job(&conn, "ocr_backfill").map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let conn = crate::db::open(&db_path).map_err(|e| e.to_string())?;
+        let job_id = jobs::create_job(&conn, "ocr_backfill").map_err(|e| e.to_string())?;
 
-    let mut stmt = conn
-        .prepare(
-            "SELECT m.id, m.path FROM media_items m
-             JOIN media_fts f ON f.media_id = m.id
-             WHERE m.media_type = 'image' AND m.is_trashed = 0
-               AND (f.ocr_text IS NULL OR f.ocr_text = '')",
-        )
-        .map_err(|e| e.to_string())?;
-    let pending: Vec<(String, String)> = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-    drop(stmt);
+        let mut stmt = conn
+            .prepare(
+                "SELECT m.id, m.path FROM media_items m
+                 JOIN media_fts f ON f.media_id = m.id
+                 WHERE m.media_type = 'image' AND m.is_trashed = 0
+                   AND (f.ocr_text IS NULL OR f.ocr_text = '')",
+            )
+            .map_err(|e| e.to_string())?;
+        let pending: Vec<(String, String)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        drop(stmt);
 
-    let total = pending.len() as i64;
-    for (i, (media_id, path)) in pending.iter().enumerate() {
-        try_extract_ocr_text(&ai, &conn, media_id, std::path::Path::new(path));
-        jobs::emit_progress(&app, &conn, &job_id, "ocr_backfill", "running", i as i64 + 1, total, None);
-    }
+        let total = pending.len() as i64;
+        for (i, (media_id, path)) in pending.iter().enumerate() {
+            if cancelled_jobs.lock().unwrap().remove(&job_id) {
+                jobs::cancel_job(&conn, &job_id);
+                jobs::emit_progress(&app, &conn, &job_id, "ocr_backfill", "cancelled", i as i64, total, None);
+                return Ok(());
+            }
+            try_extract_ocr_text(&ai, &conn, media_id, std::path::Path::new(path));
+            jobs::emit_progress(&app, &conn, &job_id, "ocr_backfill", "running", i as i64 + 1, total, None);
+        }
 
-    jobs::emit_progress(&app, &conn, &job_id, "ocr_backfill", "completed", total, total, None);
-    Ok(())
+        jobs::emit_progress(&app, &conn, &job_id, "ocr_backfill", "completed", total, total, None);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

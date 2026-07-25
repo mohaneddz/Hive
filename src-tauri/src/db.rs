@@ -89,6 +89,28 @@ CREATE TABLE IF NOT EXISTS embeddings (
     vector BLOB NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS people (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS faces (
+    id TEXT PRIMARY KEY,
+    media_id TEXT NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+    person_id TEXT REFERENCES people(id) ON DELETE SET NULL,
+    x0 INTEGER NOT NULL,
+    y0 INTEGER NOT NULL,
+    x1 INTEGER NOT NULL,
+    y1 INTEGER NOT NULL,
+    embedding BLOB NOT NULL,
+    crop_path TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_faces_media ON faces(media_id);
+CREATE INDEX IF NOT EXISTS idx_faces_person ON faces(person_id);
 "#;
 
 /// Adds `column` to `table` if it isn't there yet. `CREATE TABLE IF NOT EXISTS` in MIGRATIONS
@@ -111,6 +133,7 @@ pub fn open(db_path: &Path) -> rusqlite::Result<Connection> {
     conn.pragma_update(None, "foreign_keys", true)?;
     conn.execute_batch(MIGRATIONS)?;
     ensure_column(&conn, "media_items", "phash", "TEXT")?;
+    ensure_column(&conn, "media_items", "face_scanned", "INTEGER NOT NULL DEFAULT 0")?;
     Ok(conn)
 }
 

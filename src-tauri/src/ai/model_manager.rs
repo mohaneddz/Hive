@@ -41,12 +41,29 @@ pub const OCR_FILES: &[ModelFile] = &[
     },
 ];
 
+/// UltraFace RFB-320 (face detection, ONNX Model Zoo) + ArcFace ResNet100 int8
+/// (face embedding, 512-dim), both well-established, widely documented models.
+pub const FACE_FILES: &[ModelFile] = &[
+    ModelFile {
+        url: "https://media.githubusercontent.com/media/onnx/models/main/validated/vision/body_analysis/ultraface/models/version-RFB-320.onnx",
+        filename: "detector.onnx",
+    },
+    ModelFile {
+        url: "https://huggingface.co/onnxmodelzoo/arcfaceresnet100-11-int8/resolve/main/arcfaceresnet100-11-int8.onnx",
+        filename: "embedder.onnx",
+    },
+];
+
 pub fn clip_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("models").join("clip")
 }
 
 pub fn ocr_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("models").join("ocr")
+}
+
+pub fn face_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("models").join("faces")
 }
 
 fn models_ready(dir: &Path, files: &[ModelFile]) -> bool {
@@ -59,6 +76,10 @@ pub fn clip_models_ready(app_data_dir: &Path) -> bool {
 
 pub fn ocr_models_ready(app_data_dir: &Path) -> bool {
     models_ready(&ocr_dir(app_data_dir), OCR_FILES)
+}
+
+pub fn face_models_ready(app_data_dir: &Path) -> bool {
+    models_ready(&face_dir(app_data_dir), FACE_FILES)
 }
 
 /// Downloads any files missing from `dir`, reporting (bytes_done, bytes_total) via `on_progress`.
@@ -119,4 +140,8 @@ pub async fn ensure_clip_models(app_data_dir: &Path, on_progress: impl FnMut(u64
 
 pub async fn ensure_ocr_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
     ensure_models(&ocr_dir(app_data_dir), OCR_FILES, on_progress).await
+}
+
+pub async fn ensure_face_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
+    ensure_models(&face_dir(app_data_dir), FACE_FILES, on_progress).await
 }

@@ -100,6 +100,10 @@ pub fn scan_folder(
         jobs::emit_progress(&app, &conn, &job_id, "scan_folder", "running", 0, total, None);
         let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
 
+        // Indexed here as (media_id, path) so the AI enrichment pass below only has to touch
+        // files this scan actually added/changed, not the whole library.
+        let mut newly_indexed: Vec<(String, std::path::PathBuf)> = Vec::new();
+
         for (i, path) in files.iter().enumerate() {
             if cancelled_jobs.lock().unwrap().contains(&job_id) {
                 jobs::cancel_job(&conn, &job_id);
@@ -126,8 +130,7 @@ pub fn scan_folder(
                         &indexed.item.id,
                         path,
                     );
-                    crate::commands::ai::try_embed_image(&ai, &conn, &indexed.item.id, path);
-                    crate::commands::ai::try_extract_ocr_text(&ai, &conn, &indexed.item.id, path);
+                    newly_indexed.push((indexed.item.id, path.clone()));
                     let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
                 }
                 Ok(None) => {}
@@ -150,6 +153,36 @@ pub fn scan_folder(
 
         jobs::emit_progress(&app, &conn, &job_id, "scan_folder", "completed", total, total, None);
         let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+
+        // AI enrichment (CLIP embeddings + OCR) runs as its own job *after* the scan reports
+        // complete, so thumbnails show up immediately and indexing speed doesn't depend on
+        // whether the (much slower) AI models happen to be loaded. Only runs for models the
+        // user has already downloaded — no-op otherwise.
+        let ai_ready = ai.clip.lock().unwrap().is_some() || ai.ocr.lock().unwrap().is_some();
+        if ai_ready && !newly_indexed.is_empty() {
+            let enrich_job = jobs::create_job(&conn, "enrich_media").unwrap_or_default();
+            let enrich_total = newly_indexed.len() as i64;
+            for (i, (media_id, path)) in newly_indexed.iter().enumerate() {
+                if cancelled_jobs.lock().unwrap().remove(&enrich_job) {
+                    jobs::cancel_job(&conn, &enrich_job);
+                    jobs::emit_progress(&app, &conn, &enrich_job, "enrich_media", "cancelled", i as i64, enrich_total, None);
+                    break;
+                }
+                crate::commands::ai::try_embed_image(&ai, &conn, media_id, path);
+                crate::commands::ai::try_extract_ocr_text(&ai, &conn, media_id, path);
+                jobs::emit_progress(
+                    &app,
+                    &conn,
+                    &enrich_job,
+                    "enrich_media",
+                    "running",
+                    i as i64 + 1,
+                    enrich_total,
+                    None,
+                );
+            }
+            jobs::emit_progress(&app, &conn, &enrich_job, "enrich_media", "completed", enrich_total, enrich_total, None);
+        }
     });
 
     Ok(job_id_ret)
@@ -273,12 +306,16 @@ pub fn set_favorite(state: State<'_, AppState>, media_id: String, favorite: bool
     Ok(())
 }
 
+/// Returns raw bytes via `tauri::ipc::Response` rather than `Vec<u8>` — a `Vec<u8>` return
+/// gets JSON-encoded as an array of numbers (each byte costs ~3-4 text characters plus
+/// serde overhead), which made thumbnail loading dramatically slower than just shipping the
+/// bytes directly over IPC. The frontend reads this as an ArrayBuffer.
 #[tauri::command]
 pub fn read_media_bytes(
     state: State<'_, AppState>,
     media_id: String,
     variant: String,
-) -> Result<Vec<u8>, String> {
+) -> Result<tauri::ipc::Response, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let path: String = if variant == "original" {
         conn.query_row(
@@ -295,7 +332,8 @@ pub fn read_media_bytes(
         )
         .map_err(|e| e.to_string())?
     };
-    std::fs::read(&path).map_err(|e| e.to_string())
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
