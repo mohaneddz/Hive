@@ -92,6 +92,15 @@ pub struct DuplicateGroup {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PersonSummary {
+    pub id: String,
+    pub name: Option<String>,
+    pub face_count: i64,
+    pub cover_face_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LibraryStats {
     pub total_items: i64,
     pub total_bytes: i64,
