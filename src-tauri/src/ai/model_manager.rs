@@ -24,36 +24,60 @@ pub const CLIP_FILES: &[ModelFile] = &[
     },
 ];
 
+/// PaddleOCR PP-OCRv5 detection (server, shared across languages) + English recognition
+/// (mobile) ONNX export, plus the CTC character dictionary.
+pub const OCR_FILES: &[ModelFile] = &[
+    ModelFile {
+        url: "https://huggingface.co/monkt/paddleocr-onnx/resolve/main/detection/v5/det.onnx",
+        filename: "det.onnx",
+    },
+    ModelFile {
+        url: "https://huggingface.co/monkt/paddleocr-onnx/resolve/main/languages/english/rec.onnx",
+        filename: "rec.onnx",
+    },
+    ModelFile {
+        url: "https://huggingface.co/monkt/paddleocr-onnx/resolve/main/languages/english/dict.txt",
+        filename: "dict.txt",
+    },
+];
+
 pub fn clip_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("models").join("clip")
 }
 
-pub fn clip_models_ready(app_data_dir: &Path) -> bool {
-    let dir = clip_dir(app_data_dir);
-    CLIP_FILES.iter().all(|f| dir.join(f.filename).is_file())
+pub fn ocr_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("models").join("ocr")
 }
 
-/// Downloads any missing CLIP model files, reporting (bytes_done, bytes_total) via `on_progress`.
+fn models_ready(dir: &Path, files: &[ModelFile]) -> bool {
+    files.iter().all(|f| dir.join(f.filename).is_file())
+}
+
+pub fn clip_models_ready(app_data_dir: &Path) -> bool {
+    models_ready(&clip_dir(app_data_dir), CLIP_FILES)
+}
+
+pub fn ocr_models_ready(app_data_dir: &Path) -> bool {
+    models_ready(&ocr_dir(app_data_dir), OCR_FILES)
+}
+
+/// Downloads any files missing from `dir`, reporting (bytes_done, bytes_total) via `on_progress`.
 /// Each file is written to a `.part` path and renamed on success so a partial/interrupted
 /// download never looks like a valid model file on the next launch.
-pub async fn ensure_clip_models(
-    app_data_dir: &Path,
+pub async fn ensure_models(
+    dir: &Path,
+    files: &[ModelFile],
     mut on_progress: impl FnMut(u64, u64),
 ) -> anyhow::Result<()> {
-    let dir = clip_dir(app_data_dir);
-    tokio::fs::create_dir_all(&dir).await?;
+    tokio::fs::create_dir_all(dir).await?;
 
-    let missing: Vec<&ModelFile> = CLIP_FILES
-        .iter()
-        .filter(|f| !dir.join(f.filename).is_file())
-        .collect();
+    let missing: Vec<&ModelFile> = files.iter().filter(|f| !dir.join(f.filename).is_file()).collect();
     if missing.is_empty() {
         return Ok(());
     }
 
     let client = reqwest::Client::new();
     let mut total_size = 0u64;
-    let mut sizes = Vec::with_capacity(missing.len());
     for file in &missing {
         let resp = client.head(file.url).send().await?;
         let size = resp
@@ -63,7 +87,6 @@ pub async fn ensure_clip_models(
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(0);
         total_size += size;
-        sizes.push(size);
     }
 
     let mut done = 0u64;
@@ -88,4 +111,12 @@ pub async fn ensure_clip_models(
     }
 
     Ok(())
+}
+
+pub async fn ensure_clip_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
+    ensure_models(&clip_dir(app_data_dir), CLIP_FILES, on_progress).await
+}
+
+pub async fn ensure_ocr_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
+    ensure_models(&ocr_dir(app_data_dir), OCR_FILES, on_progress).await
 }
