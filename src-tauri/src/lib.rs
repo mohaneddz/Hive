@@ -169,6 +169,11 @@ pub fn run() {
             commands::utilities::get_storage_stats,
             commands::utilities::clear_thumbnail_cache,
             commands::utilities::export_media,
+            commands::organize::get_timeline,
+            commands::organize::list_media_in_bucket,
+            commands::organize::detect_events,
+            commands::organize::detect_trips,
+            commands::quality::scan_blur,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hive");
