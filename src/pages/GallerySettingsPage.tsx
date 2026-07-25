@@ -1,4 +1,4 @@
-import { Download, FolderOpen, Image, Monitor, Moon, Palette, Plus, RefreshCw, ScanText, Sparkles, Sun, Trash2, Users } from "lucide-react";
+import { Download, FolderOpen, Image, ImageOff, Monitor, Moon, Palette, Plus, RefreshCw, ScanText, Sparkles, Sun, Trash2, Users } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 
@@ -12,6 +12,7 @@ import {
   backfillEmbeddings,
   backfillFaces,
   backfillOcr,
+  backfillThumbnails,
   downloadAiModels,
   downloadFaceModels,
   downloadOcrModels,
@@ -36,6 +37,7 @@ export function GallerySettingsPage() {
   const [ocrBackfilling, setOcrBackfilling] = useState(false);
   const [faceDownloading, setFaceDownloading] = useState(false);
   const [faceBackfilling, setFaceBackfilling] = useState(false);
+  const [thumbsRebuilding, setThumbsRebuilding] = useState(false);
 
   const downloadJob = jobs.find((j) => j.kind === "download_models" && j.status === "running");
   const backfillJob = jobs.find((j) => j.kind === "embed_backfill" && j.status === "running");
@@ -43,6 +45,7 @@ export function GallerySettingsPage() {
   const ocrBackfillJob = jobs.find((j) => j.kind === "ocr_backfill" && j.status === "running");
   const faceDownloadJob = jobs.find((j) => j.kind === "download_face_models" && j.status === "running");
   const faceBackfillJob = jobs.find((j) => j.kind === "face_backfill" && j.status === "running");
+  const thumbsJob = jobs.find((j) => j.kind === "thumbnail_backfill" && j.status === "running");
 
   const startDownload = async () => {
     setDownloading(true);
@@ -110,6 +113,15 @@ export function GallerySettingsPage() {
     }
   };
 
+  const startThumbnailRebuild = async () => {
+    setThumbsRebuilding(true);
+    try {
+      await backfillThumbnails();
+    } finally {
+      setThumbsRebuilding(false);
+    }
+  };
+
   const chooseFolder = async () => {
     try {
       const selected = await open({ directory: true, multiple: false, title: "Choose a media folder" });
@@ -169,12 +181,26 @@ export function GallerySettingsPage() {
               </div>
             ))}
           </div>
-          <button
-            onClick={chooseFolder}
-            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-honey px-4 py-2.5 text-xs font-extrabold text-[#3b2900] transition hover:bg-honey-dark"
-          >
-            <Plus size={15} /> Add folder
-          </button>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              onClick={chooseFolder}
+              className="inline-flex items-center gap-2 rounded-xl bg-honey px-4 py-2.5 text-xs font-extrabold text-[#3b2900] transition hover:bg-honey-dark"
+            >
+              <Plus size={15} /> Add folder
+            </button>
+            {folders.length > 0 && (
+              <Button
+                variant="secondary"
+                icon={<ImageOff size={14} />}
+                disabled={thumbsRebuilding || !!thumbsJob}
+                onClick={startThumbnailRebuild}
+              >
+                {thumbsJob
+                  ? `Rebuilding… ${thumbsJob.current}/${thumbsJob.total}`
+                  : "Rebuild missing thumbnails"}
+              </Button>
+            )}
+          </div>
         </Card>
 
         <Card className="p-6">
@@ -348,7 +374,7 @@ export function GallerySettingsPage() {
                 onClick={() => setTheme(choice.value)}
                 className={cn(
                   "flex items-center gap-4 rounded-2xl border p-4 text-left transition",
-                  theme === choice.value ? "border-honey bg-cream/55" : "border-ink/[.08] bg-canvas hover:border-honey/40",
+                  theme === choice.value ? "border-honey bg-honey/12" : "border-ink/[.08] bg-canvas hover:border-honey/40",
                 )}
               >
                 <div className="grid size-10 place-items-center rounded-xl bg-panel text-ink">
