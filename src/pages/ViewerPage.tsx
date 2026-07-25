@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 
 import { AddToAlbumDialog } from "@/components/media/AddToAlbumDialog";
+import { useShortcuts } from "@/hooks/useShortcuts";
 
 import { MediaThumb } from "@/components/media/MediaThumb";
 import { MediaViewerContextMenu } from "@/components/media/MediaViewerContextMenu";
@@ -64,6 +65,7 @@ export function ViewerPage() {
   // Right-click context menu
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [albumDialog, setAlbumDialog] = useState(false);
+  const { matches } = useShortcuts();
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -134,32 +136,35 @@ export function ViewerPage() {
 
   // Keyboard Shortcuts
   useEffect(() => {
+    // Bindings come from Settings rather than being written in here, so any of
+    // these can be rebound without touching this handler.
     const onKey = (event: KeyboardEvent) => {
       // The album picker owns the keyboard while it is open.
       if (albumDialog) return;
-      if (event.key.toLowerCase() === "e" && id) navigate(`/media/${id}/edit`);
-      if (event.key === "ArrowLeft") goTo(prevItem);
-      if (event.key === "ArrowRight") goTo(nextItem);
-      if (event.key === "Escape") {
+      if (matches(event, "edit") && id) navigate(`/media/${id}/edit`);
+      if (matches(event, "previous")) goTo(prevItem);
+      if (matches(event, "next")) goTo(nextItem);
+      if (matches(event, "close")) {
         if (isInfoOpen) setIsInfoOpen(false);
         else if (contextMenu) setContextMenu(null);
         else navigate("/");
       }
-      if (event.key === "+" || event.key === "=") handleZoomIn();
-      if (event.key === "-") handleZoomOut();
-      if (event.key === "0") handleResetZoom();
-      if (event.key.toLowerCase() === "r") handleRotateCw();
-      if (event.key.toLowerCase() === "i") setIsInfoOpen((prev) => !prev);
-      if (event.key === " ") {
+      // "=" sits on the same physical key as "+" on most layouts.
+      if (matches(event, "zoomIn") || event.key === "=") handleZoomIn();
+      if (matches(event, "zoomOut")) handleZoomOut();
+      if (matches(event, "resetZoom")) handleResetZoom();
+      if (matches(event, "rotate")) handleRotateCw();
+      if (matches(event, "info")) setIsInfoOpen((prev) => !prev);
+      if (matches(event, "slideshow")) {
         event.preventDefault();
         setIsPlayingSlideshow((prev) => !prev);
       }
-      if (event.key.toLowerCase() === "f") toggleFullscreen();
-      if (event.key === "Delete") trash();
+      if (matches(event, "fullscreen")) toggleFullscreen();
+      if (matches(event, "trash")) trash();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goTo, prevItem, nextItem, navigate, isInfoOpen, contextMenu, albumDialog, id]);
+  }, [goTo, prevItem, nextItem, navigate, isInfoOpen, contextMenu, albumDialog, id, matches]);
 
   // Fullscreen toggle
   const toggleFullscreen = () => {
