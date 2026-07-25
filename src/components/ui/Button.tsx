@@ -23,7 +23,7 @@ export function Button({
         variant === "primary" &&
           "bg-honey text-ink shadow-[0_8px_20px_rgba(227,161,5,.2)] hover:-translate-y-px hover:bg-honey-dark",
         variant === "secondary" &&
-          "border border-ink/10 bg-panel text-ink hover:border-honey/40 hover:bg-cream/45",
+          "border border-ink/10 bg-panel text-ink hover:border-honey/40 hover:bg-honey/12",
         variant === "ghost" && "text-ink-soft hover:bg-ink/5 hover:text-ink",
         className,
       )}
