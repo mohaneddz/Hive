@@ -28,7 +28,7 @@ export function JobIndicator() {
   };
 
   return (
-    <div className="flex items-center gap-2 rounded-full border border-honey/30 bg-cream/55 px-3 py-1 text-[11px] font-bold text-honey-deep">
+    <div className="flex items-center gap-2 rounded-full border border-honey/30 bg-honey/12 px-3 py-1 text-[11px] font-bold text-honey-deep">
       <Loader2 size={12} className="animate-spin" />
       <span>
         {JOB_LABELS[active.kind] ?? active.kind} {active.current}/{active.total}
