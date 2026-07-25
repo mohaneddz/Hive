@@ -54,14 +54,23 @@ pub fn run() {
                 );
             }
 
-            // Warm-load the CLIP model in the background if it was already downloaded in a
-            // previous session, so semantic search and embed-as-you-go work immediately.
+            // Warm-load the CLIP/OCR models in the background if they were already downloaded
+            // in a previous session, so semantic search / OCR-as-you-go work immediately.
             if ai::model_manager::clip_models_ready(&app_data_dir) {
                 let ai_state = ai_state.clone();
                 let clip_dir = ai::model_manager::clip_dir(&app_data_dir);
                 tauri::async_runtime::spawn_blocking(move || {
                     if let Ok(model) = ai::clip::ClipModel::load(&clip_dir) {
                         *ai_state.clip.lock().unwrap() = Some(model);
+                    }
+                });
+            }
+            if ai::model_manager::ocr_models_ready(&app_data_dir) {
+                let ai_state = ai_state.clone();
+                let ocr_dir = ai::model_manager::ocr_dir(&app_data_dir);
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Ok(model) = ai::ocr::OcrModel::load(&ocr_dir) {
+                        *ai_state.ocr.lock().unwrap() = Some(model);
                     }
                 });
             }
@@ -98,6 +107,8 @@ pub fn run() {
             commands::ai::download_ai_models,
             commands::ai::semantic_search,
             commands::ai::backfill_embeddings,
+            commands::ai::download_ocr_models,
+            commands::ai::backfill_ocr,
             commands::duplicates::scan_duplicates,
             commands::duplicates::get_duplicate_groups,
             commands::duplicates::dismiss_duplicate_group,
