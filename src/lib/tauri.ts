@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type {
+  AiStatus,
   Folder,
   FolderStats,
   LibraryStats,
@@ -84,4 +85,20 @@ export function setFavorite(mediaId: string, favorite: boolean): Promise<void> {
 
 export function setTrashed(mediaId: string, trashed: boolean): Promise<void> {
   return invoke("set_trashed", { mediaId, trashed });
+}
+
+export function getAiStatus(): Promise<AiStatus> {
+  return invoke("get_ai_status");
+}
+
+export function downloadAiModels(): Promise<void> {
+  return invoke("download_ai_models");
+}
+
+export function semanticSearch(query: string, limit = 200): Promise<MediaItem[]> {
+  return invoke("semantic_search", { query, limit });
+}
+
+export function backfillEmbeddings(): Promise<void> {
+  return invoke("backfill_embeddings");
 }
