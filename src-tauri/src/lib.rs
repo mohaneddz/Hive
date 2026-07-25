@@ -74,6 +74,15 @@ pub fn run() {
                     }
                 });
             }
+            if ai::model_manager::face_models_ready(&app_data_dir) {
+                let ai_state = ai_state.clone();
+                let face_dir = ai::model_manager::face_dir(&app_data_dir);
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Ok(model) = ai::face::FaceModel::load(&face_dir) {
+                        *ai_state.face.lock().unwrap() = Some(model);
+                    }
+                });
+            }
 
             app.manage(AppState {
                 db_path,
@@ -112,6 +121,13 @@ pub fn run() {
             commands::duplicates::scan_duplicates,
             commands::duplicates::get_duplicate_groups,
             commands::duplicates::dismiss_duplicate_group,
+            commands::faces::download_face_models,
+            commands::faces::backfill_faces,
+            commands::faces::list_people,
+            commands::faces::rename_person,
+            commands::faces::merge_people,
+            commands::faces::get_person_media,
+            commands::faces::read_face_crop_bytes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hive");
