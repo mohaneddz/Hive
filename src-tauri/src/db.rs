@@ -126,6 +126,20 @@ CREATE TABLE IF NOT EXISTS album_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_album_items_media ON album_items(media_id);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- Place names looked up once and kept, so the map can be labelled offline ever after.
+CREATE TABLE IF NOT EXISTS geocode_cache (
+    lat REAL NOT NULL,
+    lon REAL NOT NULL,
+    name TEXT NOT NULL,
+    looked_up_at TEXT NOT NULL,
+    PRIMARY KEY (lat, lon)
+);
 CREATE INDEX IF NOT EXISTS idx_media_items_trashed ON media_items(is_trashed);
 CREATE INDEX IF NOT EXISTS idx_faces_media ON faces(media_id);
 CREATE INDEX IF NOT EXISTS idx_faces_person ON faces(person_id);
