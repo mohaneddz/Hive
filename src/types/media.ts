@@ -144,10 +144,16 @@ export interface EditOps {
   flipVertical: boolean;
   /** Fractions of the rotated image, 0..1. `null` keeps the whole frame. */
   crop: CropRect | null;
-  /** 1 leaves the channel untouched. Same maths as the CSS filter of the same name. */
+  /** 1 leaves the channel untouched. */
   brightness: number;
   contrast: number;
   saturation: number;
+  /** 0 leaves colour alone, 1 is fully black and white. */
+  grayscale: number;
+  /** 0 leaves colour alone, 1 is a full sepia tone. */
+  sepia: number;
+  /** −1 cools the image towards blue, +1 warms it towards orange. */
+  temperature: number;
 }
 
 export const NEUTRAL_EDIT_OPS: EditOps = {
@@ -158,7 +164,22 @@ export const NEUTRAL_EDIT_OPS: EditOps = {
   brightness: 1,
   contrast: 1,
   saturation: 1,
+  grayscale: 0,
+  sepia: 0,
+  temperature: 0,
 };
+
+/** Named starting points. Each one only sets the colour fields it cares about. */
+export const FILTER_PRESETS: { name: string; ops: Partial<EditOps> }[] = [
+  { name: "Original", ops: {} },
+  { name: "Black & white", ops: { grayscale: 1, contrast: 1.1 } },
+  { name: "Sepia", ops: { sepia: 0.85, brightness: 1.05 } },
+  { name: "Vivid", ops: { saturation: 1.45, contrast: 1.12 } },
+  { name: "Muted", ops: { saturation: 0.6, contrast: 0.95 } },
+  { name: "Warm", ops: { temperature: 0.45, saturation: 1.1 } },
+  { name: "Cool", ops: { temperature: -0.45, saturation: 1.05 } },
+  { name: "Faded", ops: { contrast: 0.78, brightness: 1.08, saturation: 0.85 } },
+];
 
 /** The user's answer to "keep the original?". */
 export type SaveMode = "copy" | "overwrite";
