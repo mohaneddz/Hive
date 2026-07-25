@@ -40,7 +40,7 @@ walkdir = "2"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 tokio = { version = "1", features = ["full"] }
-image_hasher = "1"
+image_hasher = "2.0.0"
 mime_guess = "2"
 anyhow = "1"
 ort = "=2.0.0-rc.12"
