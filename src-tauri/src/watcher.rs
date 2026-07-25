@@ -1,8 +1,9 @@
+use crate::ai::AiState;
 use crate::{db, indexing, thumbnails};
 use notify::{RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
 pub const EVENT_MEDIA_CHANGED: &str = "media:changed";
@@ -27,6 +28,7 @@ impl WatcherRegistry {
         app_data_dir: PathBuf,
         folder_id: String,
         folder_path: PathBuf,
+        ai: Arc<AiState>,
     ) -> anyhow::Result<()> {
         let fid = folder_id.clone();
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
@@ -50,6 +52,7 @@ impl WatcherRegistry {
                         &indexed.item.id,
                         path,
                     );
+                    crate::commands::ai::try_embed_image(&ai, &conn, &indexed.item.id, path);
                     changed = true;
                 }
             }
