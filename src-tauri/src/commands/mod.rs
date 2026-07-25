@@ -11,5 +11,6 @@ pub mod geocode;
 pub mod media;
 pub mod organize;
 pub mod places;
+pub mod preferences;
 pub mod quality;
 pub mod utilities;
