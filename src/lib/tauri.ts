@@ -8,6 +8,7 @@ import type {
   LibraryStats,
   MediaItem,
   MediaPage,
+  PersonSummary,
   PlaceCluster,
 } from "@/types/media";
 
@@ -75,8 +76,10 @@ export async function readMediaUrl(
   mediaId: string,
   variant: "sm" | "md" | "original",
 ): Promise<string> {
-  const bytes = await invoke<number[]>("read_media_bytes", { mediaId, variant });
-  const blob = new Blob([new Uint8Array(bytes)]);
+  // read_media_bytes returns a raw tauri::ipc::Response, so invoke() resolves to an
+  // ArrayBuffer here instead of a JSON-decoded value.
+  const buffer = await invoke<ArrayBuffer>("read_media_bytes", { mediaId, variant });
+  const blob = new Blob([buffer]);
   return URL.createObjectURL(blob);
 }
 
@@ -122,4 +125,34 @@ export function getDuplicateGroups(): Promise<DuplicateGroup[]> {
 
 export function dismissDuplicateGroup(groupId: string): Promise<void> {
   return invoke("dismiss_duplicate_group", { groupId });
+}
+
+export function downloadFaceModels(): Promise<void> {
+  return invoke("download_face_models");
+}
+
+export function backfillFaces(): Promise<void> {
+  return invoke("backfill_faces");
+}
+
+export function listPeople(): Promise<PersonSummary[]> {
+  return invoke("list_people");
+}
+
+export function renamePerson(personId: string, name: string): Promise<void> {
+  return invoke("rename_person", { personId, name });
+}
+
+export function mergePeople(sourceId: string, targetId: string): Promise<void> {
+  return invoke("merge_people", { sourceId, targetId });
+}
+
+export function getPersonMedia(personId: string): Promise<MediaItem[]> {
+  return invoke("get_person_media", { personId });
+}
+
+export async function readFaceCropUrl(faceId: string): Promise<string> {
+  const buffer = await invoke<ArrayBuffer>("read_face_crop_bytes", { faceId });
+  const blob = new Blob([buffer]);
+  return URL.createObjectURL(blob);
 }
