@@ -1,10 +1,16 @@
-import { FolderOpen, Image, Monitor, Moon, Palette, Plus, RefreshCw, Sun, Trash2 } from "lucide-react";
+import { Download, FolderOpen, Image, Monitor, Moon, Palette, Plus, RefreshCw, Sparkles, Sun, Trash2 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useState } from "react";
 
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { useAiStatus } from "@/hooks/useAiStatus";
+import { useJobProgress } from "@/hooks/useJobProgress";
 import { useTheme, type Theme } from "@/hooks/useTheme";
 import { useMediaLibrary } from "@/hooks/useMediaLibrary";
+import { backfillEmbeddings, downloadAiModels } from "@/lib/tauri";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
+import { formatBytes } from "@/utils/format";
 import { cn } from "@/utils/cn";
 
 const choices: { value: Theme; label: string; icon: typeof Sun; caption: string }[] = [
@@ -15,6 +21,35 @@ const choices: { value: Theme; label: string; icon: typeof Sun; caption: string 
 export function GallerySettingsPage() {
   const { theme, setTheme } = useTheme();
   const { folders, addFolder, removeFolder, rescan } = useMediaLibrary();
+  const { status: aiStatus, refresh: refreshAiStatus } = useAiStatus();
+  const jobs = useJobProgress();
+  const [downloading, setDownloading] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
+
+  const downloadJob = jobs.find((j) => j.kind === "download_models" && j.status === "running");
+  const backfillJob = jobs.find((j) => j.kind === "embed_backfill" && j.status === "running");
+
+  const startDownload = async () => {
+    setDownloading(true);
+    try {
+      await downloadAiModels();
+      refreshAiStatus();
+    } catch {
+      /* surfaced via job status */
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const startBackfill = async () => {
+    setBackfilling(true);
+    try {
+      await backfillEmbeddings();
+      refreshAiStatus();
+    } finally {
+      setBackfilling(false);
+    }
+  };
 
   const chooseFolder = async () => {
     try {
@@ -81,6 +116,62 @@ export function GallerySettingsPage() {
           >
             <Plus size={15} /> Add folder
           </button>
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 place-items-center rounded-xl bg-cream text-honey-deep">
+              <Sparkles size={19} />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-ink">AI features</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                Semantic search runs a local CLIP model — everything happens on this device.
+              </p>
+            </div>
+          </div>
+
+          {!aiStatus?.modelsReady ? (
+            <div className="mt-5 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-ink">Local AI model</p>
+                <p className="mt-0.5 text-[11px] text-ink-muted">
+                  {downloadJob
+                    ? `Downloading… ${formatBytes(downloadJob.current)} / ${formatBytes(downloadJob.total)}`
+                    : "~150 MB, one-time download from Hugging Face."}
+                </p>
+              </div>
+              <Button
+                icon={<Download size={14} />}
+                disabled={downloading || !!downloadJob}
+                onClick={startDownload}
+                className="shrink-0"
+              >
+                {downloadJob ? "Downloading…" : "Download"}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-5 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-ink">Semantic search is ready</p>
+                <p className="mt-0.5 text-[11px] text-ink-muted">
+                  {backfillJob
+                    ? `Embedding photos… ${backfillJob.current}/${backfillJob.total}`
+                    : `${aiStatus.embeddedCount.toLocaleString()} of ${aiStatus.eligibleCount.toLocaleString()} photos embedded.`}
+                </p>
+              </div>
+              {aiStatus.embeddedCount < aiStatus.eligibleCount && (
+                <Button
+                  variant="secondary"
+                  disabled={backfilling || !!backfillJob}
+                  onClick={startBackfill}
+                  className="shrink-0"
+                >
+                  {backfillJob ? "Working…" : "Embed remaining"}
+                </Button>
+              )}
+            </div>
+          )}
         </Card>
 
         <Card className="p-6">
