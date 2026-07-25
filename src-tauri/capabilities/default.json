@@ -24,6 +24,7 @@
     "core:window:allow-unmaximize",
     "core:window:allow-unminimize",
     "opener:default",
+    "opener:allow-open-url",
     "dialog:default",
     "fs:default",
     "http:default",
