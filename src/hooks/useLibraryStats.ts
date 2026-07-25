@@ -1,23 +1,38 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import { getLibraryStats, isTauri } from "@/lib/tauri";
 import type { LibraryStats } from "@/types/media";
 
+/**
+ * Library counters, kept live.
+ *
+ * Listens to two events: `media:changed` when files are added or removed, and
+ * `media:flagged` when only a flag moved — favorites, hidden, archived. The
+ * second one exists so a heart click refreshes these totals without making
+ * grids refetch a whole page.
+ */
 export function useLibraryStats() {
   const [stats, setStats] = useState<LibraryStats | null>(null);
 
-  useEffect(() => {
+  const refreshStats = useCallback(async () => {
     if (!isTauri()) return;
-    const refresh = () => {
-      void getLibraryStats().then(setStats);
-    };
-    refresh();
-    const unlisten = listen("media:changed", refresh);
-    return () => {
-      void unlisten.then((dispose) => dispose());
-    };
+    setStats(await getLibraryStats());
   }, []);
 
-  return stats;
+  useEffect(() => {
+    void refreshStats();
+  }, [refreshStats]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const subscriptions = ["media:changed", "media:flagged"].map((event) =>
+      listen(event, () => void refreshStats()),
+    );
+    return () => {
+      subscriptions.forEach((subscription) => void subscription.then((dispose) => dispose()));
+    };
+  }, [refreshStats]);
+
+  return { stats, refreshStats };
 }
