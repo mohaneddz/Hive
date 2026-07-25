@@ -1,5 +1,7 @@
 import { FolderPlus, ImagePlus, Loader2, X } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useEffect, useMemo } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/Button";
 import { MediaCard } from "@/components/media/MediaCard";
@@ -8,6 +10,14 @@ import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 
 export function GalleryPage() {
   const { items, total, loading, jobs, folders, addFolder, cancelJob, loadPage } = useMediaLibrary();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const folderId = searchParams.get("folder") ?? undefined;
+  const activeFolder = useMemo(() => folders.find((f) => f.id === folderId), [folders, folderId]);
+
+  useEffect(() => {
+    void loadPage(0, { folderId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folderId]);
 
   const chooseFolder = async () => {
     try {
@@ -25,17 +35,27 @@ export function GalleryPage() {
   return (
     <div>
       <GalleryPageHeader
-        eyebrow="Your library"
-        title="Every photo and video, indexed locally."
+        eyebrow={activeFolder ? "Folder" : "Your library"}
+        title={activeFolder ? activeFolder.name : "Every photo and video, indexed locally."}
         description={
           folders.length === 0
             ? "Add a folder to start building your local library."
-            : `${total} item${total === 1 ? "" : "s"} across ${folders.length} folder${folders.length === 1 ? "" : "s"}.`
+            : `${total} item${total === 1 ? "" : "s"}${activeFolder ? "" : ` across ${folders.length} folder${folders.length === 1 ? "" : "s"}`}.`
         }
         action={
-          <Button icon={<FolderPlus size={16} />} onClick={chooseFolder}>
-            Add folder
-          </Button>
+          activeFolder ? (
+            <Link
+              to="/gallery"
+              onClick={() => setSearchParams({})}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-honey-deep hover:underline"
+            >
+              <X size={13} /> Clear filter
+            </Link>
+          ) : (
+            <Button icon={<FolderPlus size={16} />} onClick={chooseFolder}>
+              Add folder
+            </Button>
+          )
         }
       />
 
@@ -84,7 +104,7 @@ export function GalleryPage() {
           </div>
           {items.length < total && (
             <div className="mt-8 flex justify-center">
-              <Button variant="secondary" disabled={loading} onClick={() => loadPage(items.length)}>
+              <Button variant="secondary" disabled={loading} onClick={() => loadPage(items.length, { folderId })}>
                 {loading ? "Loading…" : "Load more"}
               </Button>
             </div>
