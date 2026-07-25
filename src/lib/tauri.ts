@@ -64,6 +64,10 @@ export function getLibraryStats(): Promise<LibraryStats> {
   return invoke("get_library_stats");
 }
 
+export function backfillThumbnails(): Promise<void> {
+  return invoke("backfill_thumbnails");
+}
+
 export function getMediaDetail(mediaId: string): Promise<MediaItem> {
   return invoke("get_media_detail", { mediaId });
 }
