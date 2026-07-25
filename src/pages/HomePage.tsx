@@ -39,17 +39,17 @@ export function HomePage() {
 
       {latestFolder ? (
         <Card className="relative overflow-hidden p-0">
-          <div className="grid grid-cols-[1.1fr_1.4fr] items-stretch">
+          <div className="grid h-[220px] grid-cols-[1.1fr_1.4fr] items-stretch">
             <div className="flex flex-col justify-between p-7">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[.13em] text-ink-muted">
                   Continue where you left off
                 </p>
                 <div className="mt-4 flex items-center gap-2 text-ink">
-                  <FolderOpen size={16} className="text-honey-deep" />
-                  <h2 className="text-lg font-extrabold">{latestFolder.folder.name}</h2>
+                  <FolderOpen size={16} className="shrink-0 text-honey-deep" />
+                  <h2 className="truncate text-lg font-extrabold">{latestFolder.folder.name}</h2>
                 </div>
-                <p className="mt-1 text-xs text-ink-muted">
+                <p className="mt-1 truncate text-xs text-ink-muted" title={latestFolder.folder.path}>
                   {latestFolder.itemCount} item{latestFolder.itemCount === 1 ? "" : "s"} · {latestFolder.folder.path}
                 </p>
               </div>
@@ -57,13 +57,13 @@ export function HomePage() {
                 <Button className="mt-6 w-fit">Open collection</Button>
               </Link>
             </div>
-            <div className="relative min-h-[220px] bg-shell">
+            <div className="relative h-full w-full overflow-hidden bg-shell">
               {latestFolder.coverMediaId && (
                 <MediaThumb
                   mediaId={latestFolder.coverMediaId}
                   variant="md"
                   alt={latestFolder.folder.name}
-                  className="size-full object-cover"
+                  className="absolute inset-0 size-full object-cover"
                 />
               )}
             </div>
@@ -131,7 +131,7 @@ export function HomePage() {
           </div>
           <div className="mt-4 space-y-3 text-xs">
             {activeJob ? (
-              <div className="flex items-center justify-between rounded-xl bg-cream/45 px-3 py-2 font-bold text-honey-deep">
+              <div className="flex items-center justify-between rounded-xl bg-honey/10 px-3 py-2 font-bold text-honey-deep">
                 <span>Indexing…</span>
                 <span>
                   {activeJob.current}/{activeJob.total}
