@@ -50,7 +50,7 @@ export function ExplorerPage() {
               onClick={() => setSelected(entry.folder.id)}
               className={cn(
                 "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-bold text-ink-muted transition hover:bg-ink/5",
-                selected === entry.folder.id && "bg-cream/55 text-honey-deep",
+                selected === entry.folder.id && "bg-honey/12 text-honey-deep",
               )}
             >
               <FolderOpen size={15} className="shrink-0" />
