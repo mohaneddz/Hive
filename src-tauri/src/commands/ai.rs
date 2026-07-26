@@ -23,6 +23,8 @@ pub struct AiStatus {
     pub face_model_loaded: bool,
     pub faces_indexed_count: i64,
     pub people_count: i64,
+    pub llm_models_ready: bool,
+    pub llm_model_loaded: bool,
 }
 
 #[tauri::command]
@@ -33,6 +35,8 @@ pub fn get_ai_status(state: State<'_, AppState>) -> Result<AiStatus, String> {
     let ocr_model_loaded = state.ai.ocr.lock().unwrap().is_some();
     let face_models_ready = model_manager::face_models_ready(&state.app_data_dir);
     let face_model_loaded = state.ai.face.lock().unwrap().is_some();
+    let llm_models_ready = model_manager::llm_models_ready(&state.app_data_dir);
+    let llm_model_loaded = state.ai.llm.lock().unwrap().is_some();
 
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let embedded_count: i64 = conn
@@ -73,6 +77,8 @@ pub fn get_ai_status(state: State<'_, AppState>) -> Result<AiStatus, String> {
         face_model_loaded,
         faces_indexed_count,
         people_count,
+        llm_models_ready,
+        llm_model_loaded,
         ocr_model_loaded,
         ocr_indexed_count,
     })

@@ -2,6 +2,7 @@ pub mod ai;
 pub mod albums;
 pub mod backup;
 pub mod batch;
+pub mod chat;
 pub mod duplicates;
 pub mod editor;
 pub mod explorer;
