@@ -71,7 +71,7 @@ export function HomePage() {
       setFavorites(favoritePage.items);
       setMemories(onThisDay);
       // "viewed" sorts NULLs last in SQLite DESC ordering, but a library with
-      // nothing opened yet would still return rows â€” filter them out here.
+      // nothing opened yet would still return rows — filter them out here.
       setContinueViewing(viewedPage.items.filter((item) => item.lastViewedAt));
     } finally {
       setLoading(false);
@@ -111,8 +111,8 @@ export function HomePage() {
         title="Welcome back."
         description={
           stats
-            ? `${formatCount(stats.totalItems, "item")} Â· ${formatBytes(stats.totalBytes)} across ${formatCount(stats.folderCount, "folder")}.`
-            : "Loading your libraryâ€¦"
+            ? `${formatCount(stats.totalItems, "item")} · ${formatBytes(stats.totalBytes)} across ${formatCount(stats.folderCount, "folder")}.`
+            : "Loading your library…"
         }
         action={
           <Button icon={<FolderPlus size={16} />} onClick={chooseFolder}>
@@ -125,7 +125,7 @@ export function HomePage() {
         <EmptyState
           icon={<Images size={22} />}
           title="Your library is empty"
-          description="Point Hive at a folder of photos or videos. Everything is indexed locally â€” nothing ever leaves your machine."
+          description="Point Hive at a folder of photos or videos. Everything is indexed locally — nothing ever leaves your machine."
           action={
             <Button icon={<FolderPlus size={16} />} onClick={chooseFolder}>
               Add folder
@@ -141,7 +141,7 @@ export function HomePage() {
               icon={<Images size={17} />}
               label="Photos & videos"
               value={stats.totalItems.toLocaleString()}
-              hint={`${stats.imageCount.toLocaleString()} photos Â· ${stats.videoCount.toLocaleString()} videos`}
+              hint={`${stats.imageCount.toLocaleString()} photos · ${stats.videoCount.toLocaleString()} videos`}
               to={routes.gallery.path}
             />
             <StatTile
