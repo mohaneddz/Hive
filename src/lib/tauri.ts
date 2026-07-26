@@ -7,6 +7,7 @@ import type {
   BatchReport,
   BlurReport,
   CacheReport,
+  ChatResponse,
   ConvertFormat,
   DuplicateGroup,
   EditOps,
@@ -494,4 +495,12 @@ export async function readFaceCropUrl(faceId: string): Promise<string> {
   const buffer = await invoke<ArrayBuffer>("read_face_crop_bytes", { faceId });
   const blob = new Blob([buffer]);
   return URL.createObjectURL(blob);
+}
+
+export function downloadLlmModel(): Promise<void> {
+  return invoke("download_llm_model");
+}
+
+export function galleryChat(message: string): Promise<ChatResponse> {
+  return invoke("gallery_chat", { message });
 }
