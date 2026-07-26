@@ -47,6 +47,9 @@ ort = "=2.0.0-rc.12"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 futures-util = "0.3"
+candle-core = "0.11.0"
+candle-transformers = "0.11.0"
+candle-nn = "0.11.0"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
@@ -56,6 +59,13 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# `pnpm tauri dev` builds with the dev profile, which leaves numeric-heavy dependencies (candle's
+# matmul kernels especially) fully unoptimized — the local chat model's test reply went from
+# ~14 minutes to ~24 seconds once this was added. Only affects dependency compilation, not our
+# own code, so incremental rebuilds of app logic stay fast.
+[profile.dev.package."*"]
+opt-level = 3
 
 [dev-dependencies]
 ab_glyph = "0.2.32"
