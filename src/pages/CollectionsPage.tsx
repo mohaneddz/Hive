@@ -217,7 +217,7 @@ export function CollectionsPage() {
           }
         />
         {loading ? (
-          <div className="mt-12 text-center text-sm text-ink-muted">Loadingâ€¦</div>
+          <div className="mt-12 text-center text-sm text-ink-muted">Loading…</div>
         ) : items.length === 0 ? (
           <EmptyState
             icon={<config.icon size={22} />}
@@ -364,7 +364,7 @@ export function CollectionsPage() {
         <EmptyState
           icon={<Layers size={22} />}
           title="No albums yet"
-          description="Albums are yours to arrange by hand. Open any photo and use â€œAdd to albumâ€, or create an empty one to fill later."
+          description="Albums are yours to arrange by hand. Open any photo and use “Add to album”, or create an empty one to fill later."
           action={
             <Button icon={<Plus size={16} />} onClick={() => setCreating(true)}>
               New album
@@ -410,7 +410,7 @@ export function CollectionsPage() {
                     <p className="truncate text-xs font-extrabold text-ink">{album.name}</p>
                   )}
                   <p className="mt-0.5 truncate text-[11px] text-ink-muted">
-                    {formatCount(album.itemCount, "item")} Â· {relativeTime(album.updatedAt)}
+                    {formatCount(album.itemCount, "item")} · {relativeTime(album.updatedAt)}
                   </p>
                 </Link>
                 <div className={cn("flex shrink-0 gap-1", editing?.id === album.id && "hidden")}>
