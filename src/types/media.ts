@@ -306,11 +306,18 @@ export interface AiStatus {
   faceModelLoaded: boolean;
   facesIndexedCount: number;
   peopleCount: number;
+  llmModelsReady: boolean;
+  llmModelLoaded: boolean;
 }
 
 export interface DuplicateGroup {
   groupId: string;
   items: MediaItem[];
+}
+
+export interface ChatResponse {
+  answer: string;
+  mediaIds: string[];
 }
 
 export interface PersonSummary {
