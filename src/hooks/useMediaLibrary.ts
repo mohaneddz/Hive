@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import * as api from "@/lib/tauri";
 import { useJobProgress } from "@/hooks/useJobProgress";
-import type { Folder, MediaItem } from "@/types/media";
+import type { Folder, MediaItem, MediaSort } from "@/types/media";
 
 const PAGE_SIZE = 60;
 
@@ -20,7 +20,10 @@ export function useMediaLibrary() {
   }, []);
 
   const loadPage = useCallback(
-    async (offset = 0, options?: { mediaType?: string; favoritesOnly?: boolean; folderId?: string }) => {
+    async (
+      offset = 0,
+      options?: { mediaType?: string; favoritesOnly?: boolean; folderId?: string; sort?: MediaSort },
+    ) => {
       if (!api.isTauri()) return;
       setLoading(true);
       try {
@@ -30,6 +33,7 @@ export function useMediaLibrary() {
           mediaType: options?.mediaType,
           favoritesOnly: options?.favoritesOnly,
           folderId: options?.folderId,
+          sort: options?.sort,
         });
         setItems((prev) => (offset === 0 ? page.items : [...prev, ...page.items]));
         setTotal(page.total);
@@ -91,6 +95,7 @@ export function useMediaLibrary() {
   return {
     folders,
     items,
+    setItems,
     total,
     loading,
     jobs,
