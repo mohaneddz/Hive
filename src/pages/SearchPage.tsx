@@ -2,6 +2,7 @@ import { Search, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
+import { GalleryChatPanel } from "@/components/chat/GalleryChatPanel";
 import { MediaCard } from "@/components/media/MediaCard";
 import { useAiStatus } from "@/hooks/useAiStatus";
 import { getMediaPage, searchMedia, semanticSearch } from "@/lib/tauri";
@@ -67,7 +68,8 @@ export function SearchPage() {
   }, [items, query, mediaType, favoritesOnly]);
 
   return (
-    <div>
+    <div className="grid grid-cols-[1fr_320px] gap-6">
+      <div>
       <GalleryPageHeader
         eyebrow="Search"
         title="Find anything in your library."
@@ -175,6 +177,11 @@ export function SearchPage() {
           )}
         </>
       )}
+      </div>
+
+      <div className="sticky top-0 h-[calc(100vh-120px)]">
+        <GalleryChatPanel />
+      </div>
     </div>
   );
 }
