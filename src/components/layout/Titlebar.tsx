@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, HelpCircle, Minus, Search, Square, X } from "lucide-react";
+import { HelpCircle, Minus, Search, Square, X } from "lucide-react";
 
 import { appConfig } from "@/config/app";
+import { routes } from "@/config/routes";
 import { useWindowControls } from "@/hooks/useWindowControls";
 import { HiveMark } from "@/components/brand/HiveMark";
 import { JobIndicator } from "@/components/layout/JobIndicator";
@@ -44,10 +45,11 @@ export function Titlebar() {
       <div data-tauri-drag-region className="flex-1" />
 
       <div className="flex items-center gap-1 text-ink-muted">
-        <button className="grid size-7 place-items-center rounded-lg transition hover:bg-ink/5 hover:text-ink" title="Notifications">
-          <Bell size={14} />
-        </button>
-        <button className="grid size-7 place-items-center rounded-lg transition hover:bg-ink/5 hover:text-ink" title="Help">
+        <button
+          onClick={() => navigate(routes.settings.path)}
+          className="grid size-7 place-items-center rounded-lg transition hover:bg-ink/5 hover:text-ink"
+          title="Settings & shortcuts"
+        >
           <HelpCircle size={14} />
         </button>
       </div>
