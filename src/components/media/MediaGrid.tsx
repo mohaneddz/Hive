@@ -9,6 +9,8 @@ const COLUMN_CLASSES: Record<number, string> = {
   4: "grid-cols-4",
   5: "grid-cols-5",
   6: "grid-cols-6",
+  7: "grid-cols-7",
+  8: "grid-cols-8",
 };
 
 export function MediaGrid({
@@ -21,7 +23,7 @@ export function MediaGrid({
   className,
 }: {
   items: MediaItem[];
-  columns?: 3 | 4 | 5 | 6;
+  columns?: 3 | 4 | 5 | 6 | 7 | 8;
   onFavoriteChange?: (mediaId: string, favorite: boolean) => void;
   selected?: Set<string>;
   onToggleSelect?: (mediaId: string) => void;
