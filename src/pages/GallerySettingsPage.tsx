@@ -17,6 +17,7 @@ import {
   applyCacheLimit,
   clearThumbnailCache,
   downloadFaceModels,
+  downloadLlmModel,
   downloadOcrModels,
   getCacheLimitMb,
   getGeocodingEnabled,
@@ -58,6 +59,7 @@ export function GallerySettingsPage() {
   const [ocrBackfilling, setOcrBackfilling] = useState(false);
   const [faceDownloading, setFaceDownloading] = useState(false);
   const [faceBackfilling, setFaceBackfilling] = useState(false);
+  const [llmDownloading, setLlmDownloading] = useState(false);
   const [thumbsRebuilding, setThumbsRebuilding] = useState(false);
   const [storage, setStorage] = useState<StorageStats | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
@@ -104,6 +106,7 @@ export function GallerySettingsPage() {
   const faceDownloadJob = jobs.find((j) => j.kind === "download_face_models" && j.status === "running");
   const faceBackfillJob = jobs.find((j) => j.kind === "face_backfill" && j.status === "running");
   const thumbsJob = jobs.find((j) => j.kind === "thumbnail_backfill" && j.status === "running");
+  const llmDownloadJob = jobs.find((j) => j.kind === "download_llm_model" && j.status === "running");
 
   const startDownload = async () => {
     setDownloading(true);
@@ -168,6 +171,18 @@ export function GallerySettingsPage() {
       refreshAiStatus();
     } finally {
       setFaceBackfilling(false);
+    }
+  };
+
+  const startLlmDownload = async () => {
+    setLlmDownloading(true);
+    try {
+      await downloadLlmModel();
+      refreshAiStatus();
+    } catch {
+      /* surfaced via job status */
+    } finally {
+      setLlmDownloading(false);
     }
   };
 
@@ -436,6 +451,39 @@ export function GallerySettingsPage() {
                   {faceBackfillJob ? "Working…" : "Scan remaining"}
                 </Button>
               )}
+            </div>
+          )}
+
+          {!aiStatus?.llmModelsReady ? (
+            <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+              <div className="min-w-0 flex items-center gap-3">
+                <Sparkles size={16} className="shrink-0 text-honey-deep" />
+                <div>
+                  <p className="text-xs font-bold text-ink">Gallery chat</p>
+                  <p className="mt-0.5 text-[11px] text-ink-muted">
+                    {llmDownloadJob
+                      ? `Downloading… ${formatBytes(llmDownloadJob.current)} / ${formatBytes(llmDownloadJob.total)}`
+                      : "~1.1 GB, a small local model for asking questions about your photos."}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                icon={<Download size={14} />}
+                disabled={llmDownloading || !!llmDownloadJob}
+                onClick={startLlmDownload}
+                className="shrink-0"
+              >
+                {llmDownloadJob ? "Downloading…" : "Download"}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-3 flex items-center gap-3 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+              <Sparkles size={16} className="shrink-0 text-honey-deep" />
+              <div>
+                <p className="text-xs font-bold text-ink">Gallery chat is ready</p>
+                <p className="mt-0.5 text-[11px] text-ink-muted">Ask questions about your library from the Search page.</p>
+              </div>
             </div>
           )}
         </Card>
