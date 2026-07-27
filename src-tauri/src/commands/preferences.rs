@@ -4,7 +4,7 @@
 //! Both live in the `app_settings` table rather than the frontend's local
 //! storage, because both are read by Rust as well as by the interface.
 
-use crate::models::CacheReport;
+use crate::models::{CacheReport, NsfwPolicy};
 use crate::state::AppState;
 use crate::thumbnails;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -13,9 +13,14 @@ use tauri::State;
 
 const SETTING_CACHE_LIMIT: &str = "thumbnail_cache_limit_mb";
 const SETTING_SHORTCUTS: &str = "shortcuts";
+const SETTING_NSFW_THRESHOLD: &str = "nsfw_threshold";
+const SETTING_NSFW_AUTO_HIDE: &str = "nsfw_auto_hide";
 
 /// 0 means "no limit". Anything else is a ceiling in megabytes.
 const DEFAULT_CACHE_LIMIT_MB: i64 = 0;
+
+/// The score the classifier has to reach before a photo counts as sensitive.
+const DEFAULT_NSFW_THRESHOLD: f64 = 0.7;
 
 fn read_setting(conn: &Connection, key: &str) -> Option<String> {
     conn.query_row(
@@ -36,6 +41,44 @@ fn write_setting(conn: &Connection, key: &str, value: &str) -> Result<(), String
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/* ---------------------------------------------------- sensitive content -- */
+
+/// Reads the policy, falling back to the defaults when nothing was ever set.
+///
+/// Auto-hide defaults to **off**. Hiding is not a display choice — it takes the
+/// photo out of the library — and no classifier is right often enough to do that
+/// to someone's pictures without being asked. Covering them in the grid, which is
+/// reversible with one click, happens either way.
+pub fn nsfw_policy(conn: &Connection) -> NsfwPolicy {
+    NsfwPolicy {
+        threshold: read_setting(conn, SETTING_NSFW_THRESHOLD)
+            .and_then(|value| value.parse::<f64>().ok())
+            .filter(|value| (0.0..=1.0).contains(value))
+            .unwrap_or(DEFAULT_NSFW_THRESHOLD),
+        auto_hide: read_setting(conn, SETTING_NSFW_AUTO_HIDE).as_deref() == Some("true"),
+    }
+}
+
+#[tauri::command]
+pub fn get_nsfw_policy(state: State<'_, AppState>) -> Result<NsfwPolicy, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    Ok(nsfw_policy(&conn))
+}
+
+#[tauri::command]
+pub fn set_nsfw_policy(
+    state: State<'_, AppState>,
+    threshold: f64,
+    auto_hide: bool,
+) -> Result<(), String> {
+    if !(0.0..=1.0).contains(&threshold) {
+        return Err("Threshold must be between 0 and 1".into());
+    }
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    write_setting(&conn, SETTING_NSFW_THRESHOLD, &threshold.to_string())?;
+    write_setting(&conn, SETTING_NSFW_AUTO_HIDE, if auto_hide { "true" } else { "false" })
 }
 
 /* ------------------------------------------------------ thumbnail cache -- */
@@ -160,6 +203,36 @@ mod tests {
         )
         .unwrap();
         conn
+    }
+
+    #[test]
+    fn hiding_sensitive_photos_is_off_until_it_is_asked_for() {
+        let conn = memory_db();
+        let policy = nsfw_policy(&conn);
+
+        assert_eq!(policy.threshold, DEFAULT_NSFW_THRESHOLD);
+        assert!(!policy.auto_hide, "photos must not vanish by default");
+    }
+
+    #[test]
+    fn a_threshold_outside_zero_to_one_falls_back_to_the_default() {
+        let conn = memory_db();
+        // Nothing rejects a hand-edited database, so a nonsense value must not
+        // become a threshold no photo can ever reach.
+        write_setting(&conn, SETTING_NSFW_THRESHOLD, "7").unwrap();
+
+        assert_eq!(nsfw_policy(&conn).threshold, DEFAULT_NSFW_THRESHOLD);
+    }
+
+    #[test]
+    fn a_saved_policy_reads_back_as_written() {
+        let conn = memory_db();
+        write_setting(&conn, SETTING_NSFW_THRESHOLD, "0.85").unwrap();
+        write_setting(&conn, SETTING_NSFW_AUTO_HIDE, "true").unwrap();
+
+        let policy = nsfw_policy(&conn);
+        assert_eq!(policy.threshold, 0.85);
+        assert!(policy.auto_hide);
     }
 
     #[test]
