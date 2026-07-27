@@ -1,13 +1,13 @@
-import { invoke } from "@tauri-apps/api/core";
+﻿import { invoke } from "@tauri-apps/api/core";
 
 import type {
   AiStatus,
   Album,
   BackupInfo,
   BatchReport,
+  BestPhotoResult,
   BlurReport,
   CacheReport,
-  ChatResponse,
   ConvertFormat,
   DuplicateGroup,
   EditOps,
@@ -22,12 +22,20 @@ import type {
   MediaPage,
   MediaScope,
   MediaSort,
+  NsfwPolicy,
   PersonSummary,
   PlaceCluster,
   PlaceGroup,
+  RankedItem,
   RenamePreview,
   SaveMode,
+  SmartAlbum,
+  SmartAlbumMatch,
+  SmartAlbumRule,
+  SmartAlbumSuggestion,
   StorageStats,
+  TagResult,
+  TagSummary,
   TimelineBucket,
   TimelineGranularity,
 } from "@/types/media";
@@ -198,7 +206,7 @@ export function updateMediaMetadata(
 /* ------------------------------------------------------------------ batch -- */
 
 /**
- * Pattern tokens: `{name}` original stem · `{n}` sequence number · `{date}`
+ * Pattern tokens: `{name}` original stem Â· `{n}` sequence number Â· `{date}`
  * capture day. The extension is always carried over, never part of the pattern.
  */
 export function previewBatchRename(
@@ -344,7 +352,7 @@ export function setGeocodingEnabled(enabled: boolean): Promise<void> {
   return invoke("set_geocoding_enabled", { enabled });
 }
 
-/** Everything already looked up — reads the cache, never the network. */
+/** Everything already looked up â€” reads the cache, never the network. */
 export function getCachedPlaceNames(): Promise<[number, number, string][]> {
   return invoke("get_cached_place_names");
 }
@@ -362,6 +370,14 @@ export function lookupPlaceNames(
 /* ------------------------------------------------------------ preferences -- */
 
 /** 0 means no ceiling on the thumbnail cache. */
+export function getNsfwPolicy(): Promise<NsfwPolicy> {
+  return invoke("get_nsfw_policy");
+}
+
+export function setNsfwPolicy(threshold: number, autoHide: boolean): Promise<void> {
+  return invoke("set_nsfw_policy", { threshold, autoHide });
+}
+
 export function getCacheLimitMb(): Promise<number> {
   return invoke("get_cache_limit_mb");
 }
@@ -497,10 +513,89 @@ export async function readFaceCropUrl(faceId: string): Promise<string> {
   return URL.createObjectURL(blob);
 }
 
-export function downloadLlmModel(): Promise<void> {
-  return invoke("download_llm_model");
+/* ---------------------------------------------------------------- tagging -- */
+
+export function getTags(mediaId: string): Promise<TagResult[]> {
+  return invoke("get_tags", { mediaId });
 }
 
-export function galleryChat(message: string): Promise<ChatResponse> {
-  return invoke("gallery_chat", { message });
+export function listAllTags(): Promise<TagSummary[]> {
+  return invoke("list_all_tags");
+}
+
+export function listMediaByTag(tag: string, limit = 300): Promise<MediaItem[]> {
+  return invoke("list_media_by_tag", { tag, limit });
+}
+
+export function backfillTags(): Promise<void> {
+  return invoke("backfill_tags");
+}
+
+/* ----------------------------------------------------------- best photo -- */
+
+export function selectBestPhoto(mediaIds: string[]): Promise<BestPhotoResult> {
+  return invoke("select_best_photo", { mediaIds });
+}
+
+/* ------------------------------------------------------- smart albums -- */
+
+export function createSmartAlbum(
+  name: string,
+  rules: SmartAlbumRule[],
+  matchType: SmartAlbumMatch = "all"
+): Promise<SmartAlbum> {
+  return invoke("create_smart_album", { name, rules, matchType });
+}
+
+export function listSmartAlbums(): Promise<SmartAlbum[]> {
+  return invoke("list_smart_albums");
+}
+
+export function getSmartAlbumMedia(
+  albumId: string,
+  limit = 300
+): Promise<MediaItem[]> {
+  return invoke("get_smart_album_media", { albumId, limit });
+}
+
+export function deleteSmartAlbum(albumId: string): Promise<void> {
+  return invoke("delete_smart_album", { albumId });
+}
+
+export function suggestSmartAlbums(): Promise<SmartAlbumSuggestion[]> {
+  return invoke("suggest_smart_albums");
+}
+
+/* ----------------------------------------------------------- aesthetic -- */
+
+export function backfillAesthetic(): Promise<void> {
+  return invoke("backfill_aesthetic");
+}
+
+export function getAestheticRanking(limit = 50): Promise<RankedItem[]> {
+  return invoke("get_aesthetic_ranking", { limit });
+}
+
+/* ----------------------------------------------------------------- nsfw -- */
+
+export function downloadNsfwModel(): Promise<void> {
+  return invoke("download_nsfw_model");
+}
+
+export function backfillNsfw(): Promise<void> {
+  return invoke("backfill_nsfw");
+}
+
+/* ------------------------------------------------------------- captions -- */
+
+export function downloadCaptionModel(): Promise<void> {
+  return invoke("download_caption_model");
+}
+
+export function backfillCaptions(): Promise<void> {
+  return invoke("backfill_captions");
+}
+
+export function getCaption(mediaId: string): Promise<string | null> {
+  return invoke("get_caption", { mediaId });
 }
