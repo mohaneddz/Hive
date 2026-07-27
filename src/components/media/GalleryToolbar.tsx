@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { CalendarRange, Filter, Infinity as InfinityIcon, LayoutGrid, Minus, Plus } from "lucide-react";
 
+import { useClickOutside } from "@/hooks/useClickOutside";
 import type { MediaSort, MediaType, TimelineGranularity } from "@/types/media";
 import { cn } from "@/utils/cn";
 
@@ -25,18 +26,6 @@ const MAX_COLUMNS = 8;
 export interface GalleryFilters {
   mediaType: MediaType | "all";
   favoritesOnly: boolean;
-}
-
-function useClickOutside(onOutside: () => void) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const handler = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) onOutside();
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [onOutside]);
-  return ref;
 }
 
 export function GalleryToolbar({
