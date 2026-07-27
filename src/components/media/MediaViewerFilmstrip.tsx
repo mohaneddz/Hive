@@ -17,7 +17,6 @@ export function MediaViewerFilmstrip({
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
 
-  // Scroll active item into view on change
   useEffect(() => {
     if (activeRef.current && scrollRef.current) {
       activeRef.current.scrollIntoView({
@@ -34,7 +33,7 @@ export function MediaViewerFilmstrip({
     <div className="w-full max-w-4xl px-4 py-2 select-none">
       <div
         ref={scrollRef}
-        className="flex items-center gap-2.5 overflow-x-auto py-2 px-3 no-scrollbar rounded-2xl border border-white/20 dark:border-white/10 bg-panel/75 dark:bg-panel/75 backdrop-blur-xl shadow-lg"
+        className="flex items-center gap-2.5 overflow-x-auto py-2 px-3 no-scrollbar rounded-2xl border border-white/20 dark:border-white/10 bg-panel/75 backdrop-blur-xl shadow-lg"
       >
         {items.map((entry) => {
           const isActive = entry.id === currentId;
@@ -47,7 +46,7 @@ export function MediaViewerFilmstrip({
                 "relative shrink-0 rounded-xl overflow-hidden transition-all duration-150 group",
                 isActive
                   ? "ring-2 ring-honey ring-offset-2 ring-offset-panel scale-105 opacity-100 z-10"
-                  : "opacity-60 hover:opacity-100 hover:scale-102"
+                  : "opacity-60 hover:opacity-100 hover:scale-[1.02]"
               )}
             >
               <MediaThumb

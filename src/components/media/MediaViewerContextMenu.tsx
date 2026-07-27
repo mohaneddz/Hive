@@ -76,9 +76,9 @@ export function MediaViewerContextMenu({
     <div
       ref={menuRef}
       style={{ left: adjustedX, top: adjustedY }}
-      className="fixed z-50 w-56 rounded-2xl border border-white/20 dark:border-white/10 bg-panel/90 dark:bg-panel/90 p-1.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100 text-ink text-xs select-none"
+      className="fixed z-50 w-56 rounded-2xl border border-white/20 dark:border-white/10 bg-panel/90 p-1.5 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100 text-ink text-xs select-none"
     >
-      <div className="px-2.5 py-1.5 border-b border-border/40 text-[11px] font-medium text-ink-muted truncate">
+      <div className="px-2.5 py-1.5 border-b border-ink/[.4] text-[11px] font-medium text-ink-muted truncate">
         {item.filename}
       </div>
 
@@ -117,7 +117,7 @@ export function MediaViewerContextMenu({
         </button>
       </div>
 
-      <div className="my-1 border-t border-border/40" />
+      <div className="my-1 border-t border-ink/[.4]" />
 
       <div className="py-1">
         <button
@@ -165,7 +165,7 @@ export function MediaViewerContextMenu({
         </button>
       </div>
 
-      <div className="my-1 border-t border-border/40" />
+      <div className="my-1 border-t border-ink/[.4]" />
 
       <div className="py-1">
         <button
@@ -194,7 +194,7 @@ export function MediaViewerContextMenu({
         </button>
       </div>
 
-      <div className="my-1 border-t border-border/40" />
+      <div className="my-1 border-t border-ink/[.4]" />
 
       <div className="py-1">
         <button
@@ -202,7 +202,7 @@ export function MediaViewerContextMenu({
             onTrash();
             onClose();
           }}
-          className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 font-medium text-red-500 hover:bg-red-500/10 transition"
+          className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 font-medium hover:bg-honey/15 hover:text-honey transition"
         >
           <Trash2 size={14} />
           <span>Move to Trash</span>
