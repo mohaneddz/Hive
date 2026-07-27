@@ -53,6 +53,9 @@ pub struct MediaItem {
     /// A capture date the user corrected by hand; wins over `taken_at`.
     pub taken_at_override: Option<String>,
     pub edited_at: Option<String>,
+    /// 0..1 from the sensitive-content model, or None if never scanned.
+    /// Travels with every item so the grid can cover a photo before showing it.
+    pub nsfw_score: Option<f64>,
     pub exif: Option<ExifData>,
     pub thumbnail_path: Option<String>,
 }
@@ -325,6 +328,20 @@ pub struct CacheReport {
     pub limit_bytes: i64,
     pub freed_bytes: i64,
     pub removed: i64,
+}
+
+/// What the app does with the sensitive-content score.
+///
+/// The threshold lives here rather than in two constants so the blur in the grid
+/// and the decision to file a photo away can never disagree about what "sensitive"
+/// means.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NsfwPolicy {
+    /// Score at or above which a photo is treated as sensitive, 0..1.
+    pub threshold: f64,
+    /// Whether scoring also moves those photos out of the library into Hidden.
+    pub auto_hide: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
