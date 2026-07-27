@@ -35,6 +35,7 @@ import { MediaViewerInfoDrawer } from "@/components/media/MediaViewerInfoDrawer"
 import { getMediaDetail, getMediaPage, readMediaUrl, setFavorite, setTrashed } from "@/lib/tauri";
 import type { MediaItem } from "@/types/media";
 import { cn } from "@/utils/cn";
+import { formatDateTime } from "@/utils/format";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
@@ -48,7 +49,6 @@ export function ViewerPage() {
   const [neighbors, setNeighbors] = useState<MediaItem[]>([]);
   const [item, setItem] = useState<MediaItem | null>(null);
 
-  // Viewport & Stage states
   const [stageBg, setStageBg] = useState<StageBgMode>("adaptive");
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -56,26 +56,22 @@ export function ViewerPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // UI Drawer & Menu states
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [isPlayingSlideshow, setIsPlayingSlideshow] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Right-click context menu
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [albumDialog, setAlbumDialog] = useState(false);
   const { matches } = useShortcuts();
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Toast notification timer
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 2400);
   }, []);
 
-  // Fetch list of neighbor items for navigation
   useEffect(() => {
     let cancelled = false;
     getMediaPage({ limit: NAV_WINDOW, offset: 0 }).then((page) => {
@@ -86,12 +82,10 @@ export function ViewerPage() {
     };
   }, []);
 
-  // Fetch current media item details
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
-    
-    // Reset canvas transformation when changing images
+
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setRotation(0);
@@ -121,20 +115,18 @@ export function ViewerPage() {
     [navigate],
   );
 
-  // Auto-advance slideshow
   useEffect(() => {
     if (!isPlayingSlideshow) return;
     const interval = setInterval(() => {
       if (nextItem) {
         goTo(nextItem);
       } else if (neighbors.length > 0) {
-        goTo(neighbors[0]); // Loop back to start
+        goTo(neighbors[0]); // loops back to the start
       }
     }, 3500);
     return () => clearInterval(interval);
   }, [isPlayingSlideshow, nextItem, neighbors, goTo]);
 
-  // Keyboard Shortcuts
   useEffect(() => {
     // Bindings come from Settings rather than being written in here, so any of
     // these can be rebound without touching this handler.
@@ -166,7 +158,6 @@ export function ViewerPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [goTo, prevItem, nextItem, navigate, isInfoOpen, contextMenu, albumDialog, id, matches]);
 
-  // Fullscreen toggle
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
@@ -177,7 +168,6 @@ export function ViewerPage() {
     }
   };
 
-  // Zoom / Pan handlers
   const handleZoomIn = () => {
     setZoom((prev) => Math.min(prev + 0.25, 4.0));
   };
@@ -211,7 +201,6 @@ export function ViewerPage() {
     setRotation((prev) => (prev - 90 + 360) % 360);
   };
 
-  // Mouse wheel zoom
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     if (e.deltaY < 0) {
@@ -221,9 +210,8 @@ export function ViewerPage() {
     }
   };
 
-  // Mouse drag panning
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return; // Only left click for dragging
+    if (e.button !== 0) return;
     if (zoom > 1) {
       setIsDragging(true);
       setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
@@ -243,13 +231,11 @@ export function ViewerPage() {
     setIsDragging(false);
   };
 
-  // Context menu trigger
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
-  // Actions
   const toggleFavorite = async () => {
     if (!item) return;
     const next = !item.isFavorite;
@@ -340,7 +326,6 @@ export function ViewerPage() {
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
     >
-      {/* Toast Notification Banner */}
       {toastMessage && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full border border-honey/40 bg-panel px-4 py-2 text-xs font-semibold text-ink shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-150">
           <Check size={14} className="text-honey" />
@@ -348,31 +333,28 @@ export function ViewerPage() {
         </div>
       )}
 
-      {/* Top Floating Glass Bar */}
-      <header className="relative z-30 flex h-16 items-center justify-between px-6 border-b border-border/20 bg-panel/40 dark:bg-panel/40 backdrop-blur-md">
-        {/* Left: Back & Filename */}
+      <header className="relative z-30 flex h-16 items-center justify-between px-6 border-b border-ink/[.2] bg-panel/40 dark:bg-panel/40 backdrop-blur-md">
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => navigate("/")}
-            className="flex items-center gap-2 rounded-xl border border-border/30 bg-panel/60 px-3 py-1.5 text-xs font-semibold hover:border-honey/50 hover:bg-honey/15 hover:text-honey transition"
+            className="flex items-center gap-2 rounded-xl border border-ink/[.3] bg-panel/60 px-3 py-1.5 text-xs font-semibold hover:border-honey/50 hover:bg-honey/15 hover:text-honey transition"
             aria-label="Back to Gallery"
           >
             <X size={15} />
             <span>Close</span>
           </button>
 
-          <div className="min-w-0 border-l border-border/30 pl-3">
+          <div className="min-w-0 border-l border-ink/[.3] pl-3">
             <h1 className="text-xs font-bold truncate max-w-[280px] sm:max-w-md">
               {item.filename}
             </h1>
             <p className="text-[11px] text-ink-muted truncate">
-              {item.takenAt ?? item.createdAt}{" "}
+              {formatDateTime(item.takenAtOverride ?? item.takenAt ?? item.createdAt)}{" "}
               {item.width && item.height ? `· ${item.width} × ${item.height}` : ""}
             </p>
           </div>
         </div>
 
-        {/* Center: Status indicators */}
         {isPlayingSlideshow && (
           <div className="hidden sm:flex items-center gap-1.5 rounded-full border border-honey/40 bg-honey/10 px-3 py-1 text-[11px] font-bold text-honey animate-pulse">
             <Sparkles size={13} />
@@ -380,12 +362,11 @@ export function ViewerPage() {
           </div>
         )}
 
-        {/* Right: Actions */}
         <div className="flex items-center gap-1.5">
           {item.mediaType === "image" && (
             <button
               onClick={() => navigate(`/media/${item.id}/edit`)}
-              className="rounded-xl border border-border/30 bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
+              className="rounded-xl border border-ink/[.3] bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
               title="Edit (E)"
               aria-label="Edit photo"
             >
@@ -395,7 +376,7 @@ export function ViewerPage() {
 
           <button
             onClick={() => setAlbumDialog(true)}
-            className="rounded-xl border border-border/30 bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
+            className="rounded-xl border border-ink/[.3] bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
             title="Add to album"
             aria-label="Add to album"
           >
@@ -404,7 +385,7 @@ export function ViewerPage() {
 
           <button
             onClick={toggleFavorite}
-            className="rounded-xl border border-border/30 bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
+            className="rounded-xl border border-ink/[.3] bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
             title="Toggle Favorite"
             aria-label="Toggle favorite"
           >
@@ -416,7 +397,7 @@ export function ViewerPage() {
 
           <button
             onClick={handleCopyPath}
-            className="rounded-xl border border-border/30 bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
+            className="rounded-xl border border-ink/[.3] bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
             title="Copy Path"
             aria-label="Copy Path"
           >
@@ -425,7 +406,7 @@ export function ViewerPage() {
 
           <button
             onClick={cycleStageBg}
-            className="rounded-xl border border-border/30 bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
+            className="rounded-xl border border-ink/[.3] bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
             title={`Stage Theme: ${stageBg}`}
             aria-label="Cycle stage background"
           >
@@ -441,7 +422,7 @@ export function ViewerPage() {
           <button
             onClick={() => setIsInfoOpen((prev) => !prev)}
             className={cn(
-              "rounded-xl border border-border/30 bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition",
+              "rounded-xl border border-ink/[.3] bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition",
               isInfoOpen && "border-honey text-honey bg-honey/15"
             )}
             title="Toggle Info Panel (I)"
@@ -452,7 +433,7 @@ export function ViewerPage() {
 
           <button
             onClick={trash}
-            className="rounded-xl border border-border/30 bg-panel/60 p-2 text-red-500 hover:bg-red-500/10 transition"
+            className="rounded-xl border border-ink/[.3] bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
             title="Move to Trash"
             aria-label="Move to trash"
           >
@@ -461,7 +442,6 @@ export function ViewerPage() {
         </div>
       </header>
 
-      {/* Main Image Stage Container */}
       <div
         className="relative flex flex-1 items-center justify-center overflow-hidden p-6 cursor-grab active:cursor-grabbing"
         onWheel={handleWheel}
@@ -469,18 +449,16 @@ export function ViewerPage() {
         onDoubleClick={handleDoubleTap}
         onContextMenu={handleContextMenu}
       >
-        {/* Navigation Arrow Left */}
         {prevItem && (
           <button
             onClick={() => goTo(prevItem)}
-            className="absolute left-6 top-1/2 z-20 grid size-12 -translate-y-1/2 place-items-center rounded-2xl border border-white/20 dark:border-white/10 bg-panel/75 dark:bg-panel/75 text-ink shadow-xl backdrop-blur-xl transition hover:scale-110 hover:border-honey hover:text-honey active:scale-95"
+            className="absolute left-6 top-1/2 z-20 grid size-12 -translate-y-1/2 place-items-center rounded-2xl border border-white/20 dark:border-white/10 bg-panel/75 text-ink shadow-xl backdrop-blur-xl transition hover:scale-110 hover:border-honey hover:text-honey active:scale-95"
             aria-label="Previous image"
           >
             <ChevronLeft size={24} />
           </button>
         )}
 
-        {/* The Image Preview Canvas */}
         <div
           className="flex h-full w-full items-center justify-center transition-transform duration-75 ease-out"
           style={{
@@ -496,11 +474,10 @@ export function ViewerPage() {
           />
         </div>
 
-        {/* Navigation Arrow Right */}
         {nextItem && (
           <button
             onClick={() => goTo(nextItem)}
-            className="absolute right-6 top-1/2 z-20 grid size-12 -translate-y-1/2 place-items-center rounded-2xl border border-white/20 dark:border-white/10 bg-panel/75 dark:bg-panel/75 text-ink shadow-xl backdrop-blur-xl transition hover:scale-110 hover:border-honey hover:text-honey active:scale-95"
+            className="absolute right-6 top-1/2 z-20 grid size-12 -translate-y-1/2 place-items-center rounded-2xl border border-white/20 dark:border-white/10 bg-panel/75 text-ink shadow-xl backdrop-blur-xl transition hover:scale-110 hover:border-honey hover:text-honey active:scale-95"
             aria-label="Next image"
           >
             <ChevronRight size={24} />
@@ -508,17 +485,14 @@ export function ViewerPage() {
         )}
       </div>
 
-      {/* Floating Bottom Control Dock */}
       <div className="relative z-30 flex flex-col items-center gap-2 pb-4">
-        {/* Filmstrip Carousel */}
         <MediaViewerFilmstrip
           items={neighbors}
           currentId={item.id}
           onSelect={goTo}
         />
 
-        {/* Control Buttons Pill */}
-        <div className="flex items-center gap-1.5 rounded-2xl border border-white/20 dark:border-white/10 bg-panel/80 dark:bg-panel/80 p-1.5 shadow-2xl backdrop-blur-2xl text-ink text-xs">
+        <div className="flex items-center gap-1.5 rounded-2xl border border-white/20 dark:border-white/10 bg-panel/80 p-1.5 shadow-2xl backdrop-blur-2xl text-ink text-xs">
           <button
             onClick={handleZoomOut}
             className="rounded-xl p-2 hover:bg-honey/15 hover:text-honey transition"
@@ -543,7 +517,7 @@ export function ViewerPage() {
             <ZoomIn size={16} />
           </button>
 
-          <div className="h-4 w-px bg-border/40 my-auto mx-0.5" />
+          <div className="h-4 w-px bg-ink/[.4] my-auto mx-0.5" />
 
           <button
             onClick={handleRotateCcw}
@@ -561,7 +535,7 @@ export function ViewerPage() {
             <RotateCw size={16} />
           </button>
 
-          <div className="h-4 w-px bg-border/40 my-auto mx-0.5" />
+          <div className="h-4 w-px bg-ink/[.4] my-auto mx-0.5" />
 
           <button
             onClick={() => setIsPlayingSlideshow((prev) => !prev)}
@@ -586,7 +560,6 @@ export function ViewerPage() {
         </div>
       </div>
 
-      {/* Info & EXIF Drawer */}
       <MediaViewerInfoDrawer
         item={item}
         isOpen={isInfoOpen}
@@ -595,7 +568,6 @@ export function ViewerPage() {
         onOpenFolder={handleOpenFolder}
       />
 
-      {/* Right Click Context Menu */}
       {contextMenu && (
         <MediaViewerContextMenu
           x={contextMenu.x}
