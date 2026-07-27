@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   Calendar,
   Camera,
@@ -8,12 +7,10 @@ import {
   Info,
   MapPin,
   Maximize,
-  Sparkles,
-  Tag,
   X,
 } from "lucide-react";
-import { getCaption, getTags, isTauri } from "@/lib/tauri";
-import type { MediaItem, TagResult } from "@/types/media";
+import type { MediaItem } from "@/types/media";
+import { formatBytes, formatDateTime } from "@/utils/format";
 
 interface MediaViewerInfoDrawerProps {
   item: MediaItem;
@@ -21,14 +18,6 @@ interface MediaViewerInfoDrawerProps {
   onClose: () => void;
   onCopyPath: () => void;
   onOpenFolder: () => void;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 Bytes";
-  const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
 function calculateMegapixels(width: number | null, height: number | null): string | null {
@@ -44,34 +33,13 @@ export function MediaViewerInfoDrawer({
   onCopyPath,
   onOpenFolder,
 }: MediaViewerInfoDrawerProps) {
-  const [tags, setTags] = useState<TagResult[]>([]);
-  const [caption, setCaption] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isOpen || !item.id || !isTauri()) return;
-    let cancelled = false;
-
-    getTags(item.id).then((res) => {
-      if (!cancelled) setTags(res);
-    }).catch(() => {});
-
-    getCaption(item.id).then((res) => {
-      if (!cancelled) setCaption(res);
-    }).catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, item.id]);
-
   if (!isOpen) return null;
 
   const mp = calculateMegapixels(item.width, item.height);
 
   return (
-    <aside className="absolute right-0 top-0 bottom-0 z-40 w-80 border-l border-border/40 bg-panel/95 dark:bg-panel/95 p-5 shadow-2xl backdrop-blur-xl animate-in slide-in-from-right duration-200 flex flex-col gap-6 text-ink overflow-y-auto">
-      {/* Drawer Header */}
-      <div className="flex items-center justify-between border-b border-border/40 pb-4">
+    <aside className="absolute right-0 top-0 bottom-0 z-40 w-80 border-l border-ink/[.4] bg-panel/95 p-5 shadow-2xl backdrop-blur-xl animate-in slide-in-from-right duration-200 flex flex-col gap-6 text-ink overflow-y-auto">
+      <div className="flex items-center justify-between border-b border-ink/[.4] pb-4">
         <div className="flex items-center gap-2 font-bold text-sm">
           <Info size={16} className="text-honey" />
           <span>Info & Metadata</span>
@@ -85,11 +53,10 @@ export function MediaViewerInfoDrawer({
         </button>
       </div>
 
-      {/* File Information Section */}
       <div className="flex flex-col gap-3">
         <h4 className="eyebrow">File Info</h4>
-        
-        <div className="rounded-xl border border-border/30 bg-shell/50 p-3.5 space-y-3 text-xs">
+
+        <div className="rounded-xl border border-ink/[.3] bg-shell/50 p-3.5 space-y-3 text-xs">
           <div>
             <div className="text-[10px] uppercase font-bold text-ink-muted mb-0.5">Filename</div>
             <div className="font-semibold text-ink break-all">{item.filename}</div>
@@ -101,14 +68,14 @@ export function MediaViewerInfoDrawer({
             <div className="flex gap-2">
               <button
                 onClick={onCopyPath}
-                className="flex items-center gap-1.5 rounded-lg border border-border/40 bg-panel px-2.5 py-1 text-[11px] font-medium text-ink-soft hover:text-honey hover:border-honey/40 transition"
+                className="flex items-center gap-1.5 rounded-lg border border-ink/[.4] bg-panel px-2.5 py-1 text-[11px] font-medium text-ink-soft hover:text-honey hover:border-honey/40 transition"
               >
                 <Copy size={12} />
                 <span>Copy Path</span>
               </button>
               <button
                 onClick={onOpenFolder}
-                className="flex items-center gap-1.5 rounded-lg border border-border/40 bg-panel px-2.5 py-1 text-[11px] font-medium text-ink-soft hover:text-honey hover:border-honey/40 transition"
+                className="flex items-center gap-1.5 rounded-lg border border-ink/[.4] bg-panel px-2.5 py-1 text-[11px] font-medium text-ink-soft hover:text-honey hover:border-honey/40 transition"
               >
                 <FolderOpen size={12} />
                 <span>Reveal</span>
@@ -116,7 +83,7 @@ export function MediaViewerInfoDrawer({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border/30 text-[11px]">
+          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-ink/[.3] text-[11px]">
             <div>
               <div className="flex items-center gap-1 text-ink-muted">
                 <HardDrive size={11} />
@@ -138,11 +105,10 @@ export function MediaViewerInfoDrawer({
         </div>
       </div>
 
-      {/* Camera EXIF Details */}
       {item.exif ? (
         <div className="flex flex-col gap-3">
           <h4 className="eyebrow">Camera Specs</h4>
-          <div className="rounded-xl border border-border/30 bg-shell/50 p-3.5 space-y-3 text-xs">
+          <div className="rounded-xl border border-ink/[.3] bg-shell/50 p-3.5 space-y-3 text-xs">
             {(item.exif.cameraMake || item.exif.cameraModel) && (
               <div className="flex items-start gap-2.5">
                 <Camera size={15} className="text-honey shrink-0 mt-0.5" />
@@ -162,7 +128,7 @@ export function MediaViewerInfoDrawer({
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/30 text-[11px]">
+            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-ink/[.3] text-[11px]">
               {item.exif.focalLength && (
                 <div>
                   <span className="text-ink-muted">Focal Length: </span>
@@ -190,7 +156,7 @@ export function MediaViewerInfoDrawer({
             </div>
 
             {(item.exif.gpsLat !== null && item.exif.gpsLon !== null) && (
-              <div className="pt-2 border-t border-border/30">
+              <div className="pt-2 border-t border-ink/[.3]">
                 <div className="flex items-center gap-1 text-[10px] uppercase font-bold text-ink-muted mb-1">
                   <MapPin size={11} className="text-honey" />
                   <span>GPS Location</span>
@@ -204,55 +170,21 @@ export function MediaViewerInfoDrawer({
         </div>
       ) : null}
 
-      {/* AI Caption Section */}
-      {caption ? (
-        <div className="flex flex-col gap-3">
-          <h4 className="eyebrow flex items-center gap-1.5">
-            <Sparkles size={13} className="text-honey" />
-            <span>AI Description</span>
-          </h4>
-          <div className="rounded-xl border border-border/30 bg-shell/50 p-3.5 text-xs text-ink-soft italic leading-relaxed">
-            "{caption}"
-          </div>
-        </div>
-      ) : null}
-
-      {/* AI Tags Section */}
-      {tags.length > 0 ? (
-        <div className="flex flex-col gap-3">
-          <h4 className="eyebrow flex items-center gap-1.5">
-            <Tag size={13} className="text-honey" />
-            <span>AI Auto Tags</span>
-          </h4>
-          <div className="flex flex-wrap gap-1.5">
-            {tags.map((t) => (
-              <span
-                key={t.tag}
-                className="rounded-lg bg-honey/10 border border-honey/20 px-2 py-0.5 text-[11px] font-medium text-honey"
-              >
-                #{t.tag}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {/* Date & Time Section */}
       <div className="flex flex-col gap-3">
         <h4 className="eyebrow">Dates & History</h4>
-        <div className="rounded-xl border border-border/30 bg-shell/50 p-3.5 space-y-2 text-xs">
+        <div className="rounded-xl border border-ink/[.3] bg-shell/50 p-3.5 space-y-2 text-xs">
           <div className="flex items-center gap-2">
             <Calendar size={13} className="text-honey shrink-0" />
             <div>
               <span className="text-ink-muted text-[11px]">Taken: </span>
               <span className="font-semibold text-ink text-[11px]">
-                {item.takenAt ?? item.createdAt}
+                {formatDateTime(item.takenAtOverride ?? item.takenAt ?? item.createdAt)}
               </span>
             </div>
           </div>
 
-          <div className="text-[11px] text-ink-muted pt-1 border-t border-border/30">
-            <div>Indexed: {new Date(item.indexedAt).toLocaleString()}</div>
+          <div className="text-[11px] text-ink-muted pt-1 border-t border-ink/[.3]">
+            <div>Indexed: {formatDateTime(item.indexedAt)}</div>
           </div>
         </div>
       </div>
