@@ -269,6 +269,7 @@ pub fn index_file(
             description: None,
             taken_at_override: None,
             edited_at: None,
+            nsfw_score: None,
             exif,
             thumbnail_path: None,
         },
