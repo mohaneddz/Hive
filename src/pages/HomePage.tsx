@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -11,13 +11,14 @@ import {
   Layers,
   MapPin,
   Sparkles,
+  Star,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { MediaGrid } from "@/components/media/MediaGrid";
 import { StatTile } from "@/components/ui/StatTile";
-import { addWatchedFolder, getMediaPage, getOnThisDay, isTauri, scanFolder } from "@/lib/tauri";
+import { addWatchedFolder, getAestheticRanking, getMediaPage, getOnThisDay, isTauri, scanFolder } from "@/lib/tauri";
 import { useLibraryStats } from "@/hooks/useLibraryStats";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import { routes } from "@/config/routes";
@@ -55,24 +56,27 @@ export function HomePage() {
   const [favorites, setFavorites] = useState<MediaItem[]>([]);
   const [memories, setMemories] = useState<MediaItem[]>([]);
   const [continueViewing, setContinueViewing] = useState<MediaItem[]>([]);
+  const [topAesthetic, setTopAesthetic] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!isTauri()) return;
     setLoading(true);
     try {
-      const [recentPage, favoritePage, onThisDay, viewedPage] = await Promise.all([
+      const [recentPage, favoritePage, onThisDay, viewedPage, aestheticRanked] = await Promise.all([
         getMediaPage({ limit: RECENT_COUNT, offset: 0, sort: "added" }),
         getMediaPage({ limit: RAIL_COUNT, offset: 0, favoritesOnly: true }),
         getOnThisDay(RAIL_COUNT),
         getMediaPage({ limit: RAIL_COUNT, offset: 0, sort: "viewed" }),
+        getAestheticRanking(RAIL_COUNT).catch(() => []),
       ]);
       setRecent(recentPage.items);
       setFavorites(favoritePage.items);
       setMemories(onThisDay);
       // "viewed" sorts NULLs last in SQLite DESC ordering, but a library with
-      // nothing opened yet would still return rows — filter them out here.
+      // nothing opened yet would still return rows â€” filter them out here.
       setContinueViewing(viewedPage.items.filter((item) => item.lastViewedAt));
+      setTopAesthetic(aestheticRanked.map((r) => r.item));
     } finally {
       setLoading(false);
     }
@@ -111,8 +115,8 @@ export function HomePage() {
         title="Welcome back."
         description={
           stats
-            ? `${formatCount(stats.totalItems, "item")} · ${formatBytes(stats.totalBytes)} across ${formatCount(stats.folderCount, "folder")}.`
-            : "Loading your library…"
+            ? `${formatCount(stats.totalItems, "item")} Â· ${formatBytes(stats.totalBytes)} across ${formatCount(stats.folderCount, "folder")}.`
+            : "Loading your libraryâ€¦"
         }
         action={
           <Button icon={<FolderPlus size={16} />} onClick={chooseFolder}>
@@ -125,7 +129,7 @@ export function HomePage() {
         <EmptyState
           icon={<Images size={22} />}
           title="Your library is empty"
-          description="Point Hive at a folder of photos or videos. Everything is indexed locally — nothing ever leaves your machine."
+          description="Point Hive at a folder of photos or videos. Everything is indexed locally â€” nothing ever leaves your machine."
           action={
             <Button icon={<FolderPlus size={16} />} onClick={chooseFolder}>
               Add folder
@@ -141,7 +145,7 @@ export function HomePage() {
               icon={<Images size={17} />}
               label="Photos & videos"
               value={stats.totalItems.toLocaleString()}
-              hint={`${stats.imageCount.toLocaleString()} photos · ${stats.videoCount.toLocaleString()} videos`}
+              hint={`${stats.imageCount.toLocaleString()} photos Â· ${stats.videoCount.toLocaleString()} videos`}
               to={routes.gallery.path}
             />
             <StatTile
@@ -188,6 +192,17 @@ export function HomePage() {
                 subtitle="The last things you opened"
               />
               <MediaGrid items={continueViewing} className="mt-5" />
+            </>
+          )}
+
+          {topAesthetic.length > 0 && (
+            <>
+              <SectionHeader
+                icon={<Star size={17} />}
+                title="Top Aesthetic Photos"
+                subtitle="Highest quality photos scored by NIMA AI"
+              />
+              <MediaGrid items={topAesthetic} className="mt-5" />
             </>
           )}
 
