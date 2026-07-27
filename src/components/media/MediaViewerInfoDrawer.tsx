@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Calendar,
   Camera,
@@ -7,9 +8,12 @@ import {
   Info,
   MapPin,
   Maximize,
+  Sparkles,
+  Tag,
   X,
 } from "lucide-react";
-import type { MediaItem } from "@/types/media";
+import { getCaption, getTags, isTauri } from "@/lib/tauri";
+import type { MediaItem, TagResult } from "@/types/media";
 
 interface MediaViewerInfoDrawerProps {
   item: MediaItem;
@@ -40,6 +44,26 @@ export function MediaViewerInfoDrawer({
   onCopyPath,
   onOpenFolder,
 }: MediaViewerInfoDrawerProps) {
+  const [tags, setTags] = useState<TagResult[]>([]);
+  const [caption, setCaption] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !item.id || !isTauri()) return;
+    let cancelled = false;
+
+    getTags(item.id).then((res) => {
+      if (!cancelled) setTags(res);
+    }).catch(() => {});
+
+    getCaption(item.id).then((res) => {
+      if (!cancelled) setCaption(res);
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, item.id]);
+
   if (!isOpen) return null;
 
   const mp = calculateMegapixels(item.width, item.height);
@@ -176,6 +200,39 @@ export function MediaViewerInfoDrawer({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {/* AI Caption Section */}
+      {caption ? (
+        <div className="flex flex-col gap-3">
+          <h4 className="eyebrow flex items-center gap-1.5">
+            <Sparkles size={13} className="text-honey" />
+            <span>AI Description</span>
+          </h4>
+          <div className="rounded-xl border border-border/30 bg-shell/50 p-3.5 text-xs text-ink-soft italic leading-relaxed">
+            "{caption}"
+          </div>
+        </div>
+      ) : null}
+
+      {/* AI Tags Section */}
+      {tags.length > 0 ? (
+        <div className="flex flex-col gap-3">
+          <h4 className="eyebrow flex items-center gap-1.5">
+            <Tag size={13} className="text-honey" />
+            <span>AI Auto Tags</span>
+          </h4>
+          <div className="flex flex-wrap gap-1.5">
+            {tags.map((t) => (
+              <span
+                key={t.tag}
+                className="rounded-lg bg-honey/10 border border-honey/20 px-2 py-0.5 text-[11px] font-medium text-honey"
+              >
+                #{t.tag}
+              </span>
+            ))}
           </div>
         </div>
       ) : null}
