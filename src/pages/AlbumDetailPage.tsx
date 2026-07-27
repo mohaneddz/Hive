@@ -7,6 +7,12 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { MediaGrid } from "@/components/media/MediaGrid";
 import {
+  BestPhotoButton,
+  BestPhotoHero,
+  RankBadge,
+  useBestPhoto,
+} from "@/components/media/BestPhoto";
+import {
   exportMedia,
   getAlbum,
   getMediaPage,
@@ -27,6 +33,7 @@ export function AlbumDetailPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selecting, setSelecting] = useState(false);
+  const best = useBestPhoto();
 
   const load = useCallback(async () => {
     if (!id || !isTauri()) return;
@@ -94,6 +101,40 @@ export function AlbumDetailPage() {
     );
   };
 
+  /**
+   * Ranks photos on sharpness, looks, and how representative each one is of the
+   * set, then puts the winner first and marks it. Nothing is deleted — this only
+   * ever reorders and highlights.
+   *
+   * A selection wins over the album: "which of these eight shots do I keep" is
+   * the question this answers well, and it is rarely a whole album that is being
+   * asked about.
+   */
+  const findBestPhoto = async () => {
+    const pool = selected.size >= 2 ? items.filter((item) => selected.has(item.id)) : items;
+    const winnerId = await best.rank(pool);
+    if (!winnerId) return;
+
+    setItems((prev) => {
+      const winner = prev.find((item) => item.id === winnerId);
+      if (!winner) return prev;
+      return [winner, ...prev.filter((item) => item.id !== winnerId)];
+    });
+    // The badges live in the hover overlay, which selection mode replaces, so
+    // step out of it — otherwise the result would be invisible.
+    setSelecting(false);
+    setSelected(new Set());
+  };
+
+  const rankButton = (
+    <BestPhotoButton
+      picking={best.picking}
+      disabled={selecting && selected.size < 2}
+      label={selecting ? "Best of selection" : "Best photo"}
+      onClick={findBestPhoto}
+    />
+  );
+
   const makeCover = async (mediaId: string) => {
     if (!id) return;
     await setAlbumCover(id, mediaId);
@@ -132,6 +173,7 @@ export function AlbumDetailPage() {
           items.length > 0 ? (
             selecting ? (
               <div className="flex items-center gap-2">
+                {items.length > 1 && rankButton}
                 <Button variant="secondary" icon={<Download size={15} />} onClick={exportSelected} disabled={selected.size === 0}>
                   Export
                 </Button>
@@ -150,13 +192,24 @@ export function AlbumDetailPage() {
                 </Button>
               </div>
             ) : (
-              <Button variant="secondary" onClick={() => setSelecting(true)}>
-                Select
-              </Button>
+              <div className="flex items-center gap-2">
+                {items.length > 1 && rankButton}
+                <Button variant="secondary" onClick={() => setSelecting(true)}>
+                  Select
+                </Button>
+              </div>
             )
           ) : undefined
         }
       />
+
+      {!selecting && (
+        <BestPhotoHero
+          ranking={best.ranking}
+          scope={best.ranking.length < items.length ? "you selected" : "in this album"}
+          onDismiss={best.clear}
+        />
+      )}
 
       {selecting && (
         <p className="mt-5 rounded-2xl border border-honey/30 bg-cream/45 px-4 py-3 text-xs font-semibold text-honey-deep">
@@ -183,19 +236,25 @@ export function AlbumDetailPage() {
           renderOverlay={
             selecting
               ? undefined
-              : (item) => (
-                  <button
-                    onClick={(event) => {
-                      event.preventDefault();
-                      void makeCover(item.id);
-                    }}
-                    className="icon-button bg-white/15 text-white backdrop-blur-md"
-                    aria-label="Use as album cover"
-                    title="Use as album cover"
-                  >
-                    <Image size={14} />
-                  </button>
-                )
+              : (item) => {
+                  const ranked = best.byMedia.get(item.id);
+                  return (
+                    <>
+                      {ranked && <RankBadge entry={ranked} />}
+                      <button
+                        onClick={(event) => {
+                          event.preventDefault();
+                          void makeCover(item.id);
+                        }}
+                        className="icon-button bg-white/15 text-white backdrop-blur-md"
+                        aria-label="Use as album cover"
+                        title="Use as album cover"
+                      >
+                        <Image size={14} />
+                      </button>
+                    </>
+                  );
+                }
           }
         />
       )}

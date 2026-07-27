@@ -1,4 +1,4 @@
-export interface Folder {
+﻿export interface Folder {
   id: string;
   path: string;
   name: string;
@@ -47,6 +47,8 @@ export interface MediaItem {
   /** A capture date the user corrected by hand; wins over `takenAt`. */
   takenAtOverride: string | null;
   editedAt: string | null;
+  /** 0..1 from the sensitive-content model, or null if never scanned. */
+  nsfwScore: number | null;
   exif: ExifData | null;
   thumbnailPath: string | null;
 }
@@ -134,7 +136,7 @@ export interface CropRect {
 }
 
 /**
- * Applied in a fixed order — rotate → flip → crop → colour — matching
+ * Applied in a fixed order â€” rotate â†’ flip â†’ crop â†’ colour â€” matching
  * `apply_ops` in Rust, so the live preview and the written file agree.
  */
 export interface EditOps {
@@ -152,7 +154,7 @@ export interface EditOps {
   grayscale: number;
   /** 0 leaves colour alone, 1 is a full sepia tone. */
   sepia: number;
-  /** −1 cools the image towards blue, +1 warms it towards orange. */
+  /** âˆ’1 cools the image towards blue, +1 warms it towards orange. */
   temperature: number;
 }
 
@@ -277,6 +279,17 @@ export interface BlurryItem {
   score: number;
 }
 
+/**
+ * What the app does with the sensitive-content score. Lives in the backend so the
+ * blur in the grid and the auto-hide decision read the same number.
+ */
+export interface NsfwPolicy {
+  /** Score at or above which a photo is treated as sensitive, 0..1. */
+  threshold: number;
+  /** Whether scoring also moves those photos out of the library into Hidden. */
+  autoHide: boolean;
+}
+
 /** State of the thumbnail cache. `limitBytes` of 0 means no ceiling is set. */
 export interface CacheReport {
   usedBytes: number;
@@ -306,6 +319,9 @@ export interface AiStatus {
   faceModelLoaded: boolean;
   facesIndexedCount: number;
   peopleCount: number;
+  /** Whether each optional model is on disk â€” drives the Download button. */
+  nsfwModelsReady: boolean;
+  captionModelsReady: boolean;
 }
 
 export interface DuplicateGroup {
@@ -318,4 +334,87 @@ export interface PersonSummary {
   name: string | null;
   faceCount: number;
   coverFaceId: string;
+}
+
+export interface TagResult {
+  tag: string;
+  confidence: number;
+}
+
+export interface TagSummary {
+  tag: string;
+  count: number;
+  coverMediaId: string | null;
+}
+
+/**
+ * One photo's card in a best-photo result. Every score is 0..1 and relative to
+ * its group: 1 means "best of these photos", not "good in absolute terms".
+ */
+export interface PhotoRanking {
+  mediaId: string;
+  sharpnessScore: number;
+  aestheticScore: number;
+  representativenessScore: number;
+  totalScore: number;
+}
+
+export interface BestPhotoResult {
+  bestMediaId: string;
+  item: MediaItem;
+  score: number;
+  rankings: PhotoRanking[];
+}
+
+/** Mirrors `SUPPORTED_RULES` in `smart_albums.rs`. */
+export type SmartAlbumRuleKind =
+  | "tag"
+  | "person"
+  | "media_type"
+  | "favorite"
+  | "date_range"
+  | "place"
+  | "camera"
+  | "caption"
+  | "filename"
+  | "aesthetic"
+  | "blur"
+  | "nsfw";
+
+export interface SmartAlbumRule {
+  kind: SmartAlbumRuleKind | string;
+  /** An operator the kind accepts, optionally prefixed with `not_` to invert it. */
+  operator: string;
+  value: string;
+}
+
+/** `all` demands every rule, `any` a single one. */
+export type SmartAlbumMatch = "all" | "any";
+
+export interface SmartAlbum {
+  id: string;
+  name: string;
+  rules: SmartAlbumRule[];
+  matchType: SmartAlbumMatch;
+  coverMediaId: string | null;
+  itemCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SmartAlbumSuggestion {
+  name: string;
+  rules: SmartAlbumRule[];
+  matchType: SmartAlbumMatch;
+  previewCount: number;
+}
+
+export interface RankedItem {
+  item: MediaItem;
+  aestheticScore: number;
+}
+
+export interface CaptionResult {
+  mediaId: string;
+  text: string;
 }

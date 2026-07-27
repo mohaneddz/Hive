@@ -1,4 +1,4 @@
-import { Database, Download, FolderOpen, HardDrive, Image, ImageOff, Keyboard, Monitor, Moon, Palette, Pause, Play, Plus, RefreshCw, ScanText, Shield, Sparkles, Sun, Trash2, Users } from "lucide-react";
+﻿import { AlertTriangle, Database, Download, Eye, FileText, FolderOpen, HardDrive, Image, ImageOff, Keyboard, Monitor, Moon, Palette, Pause, Play, Plus, RefreshCw, ScanText, Shield, Sparkles, Star, Sun, Tag, Trash2, Users } from "lucide-react";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useState } from "react";
 
@@ -9,26 +9,36 @@ import { useJobProgress } from "@/hooks/useJobProgress";
 import { useTheme, type Theme } from "@/hooks/useTheme";
 import { useMediaLibrary } from "@/hooks/useMediaLibrary";
 import {
+  backfillAesthetic,
+  backfillCaptions,
   backfillEmbeddings,
   backfillFaces,
+  backfillNsfw,
   backfillOcr,
+  backfillTags,
   backfillThumbnails,
   downloadAiModels,
+  downloadCaptionModel,
+  downloadFaceModels,
+  downloadNsfwModel,
+  downloadOcrModels,
   applyCacheLimit,
   clearThumbnailCache,
-  downloadFaceModels,
-  downloadOcrModels,
   getCacheLimitMb,
   getGeocodingEnabled,
+  getNsfwPolicy,
   getStorageStats,
   isTauri,
   setCacheLimitMb,
   setFolderWatched,
   setGeocodingEnabled,
+  setNsfwPolicy as setNsfwPolicyCommand,
 } from "@/lib/tauri";
 import { ShortcutEditor } from "@/components/settings/ShortcutEditor";
+import { useDownloadProgress } from "@/hooks/useDownloadProgress";
 import { useLibraryStats } from "@/hooks/useLibraryStats";
-import type { StorageStats } from "@/types/media";
+import { refreshNsfwPolicy } from "@/hooks/useNsfwPolicy";
+import type { NsfwPolicy, StorageStats } from "@/types/media";
 import { formatCount } from "@/utils/format";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import { formatBytes } from "@/utils/format";
@@ -62,14 +72,34 @@ export function GallerySettingsPage() {
   const [storage, setStorage] = useState<StorageStats | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
+  const [nsfwPolicy, setNsfwPolicy] = useState<NsfwPolicy>({ threshold: 0.7, autoHide: false });
   const [cacheLimit, setCacheLimit] = useState(0);
+  /// Model downloads create no job, so a failure has nowhere else to surface.
+  const [failure, setFailure] = useState<string | null>(null);
+
+  // Without these, a 230 MB download is indistinguishable from a dead button.
+  const nsfwProgress = useDownloadProgress("nsfw:download:progress");
+  const captionProgress = useDownloadProgress("caption:download:progress");
   const { stats } = useLibraryStats();
 
   useEffect(() => {
     if (!isTauri()) return;
     void getGeocodingEnabled().then(setGeocoding);
     void getCacheLimitMb().then(setCacheLimit);
+    void getNsfwPolicy().then(setNsfwPolicy);
   }, []);
+
+  /** Saves, then wakes every open grid so the covering matches the new threshold. */
+  const saveNsfwPolicy = async (threshold: number, autoHide: boolean) => {
+    setFailure(null);
+    try {
+      await setNsfwPolicyCommand(threshold, autoHide);
+      setNsfwPolicy({ threshold, autoHide });
+      refreshNsfwPolicy();
+    } catch (cause) {
+      setFailure(String(cause));
+    }
+  };
 
   const loadStorage = useCallback(async () => {
     if (!isTauri()) return;
@@ -82,7 +112,7 @@ export function GallerySettingsPage() {
 
   const clearCache = async () => {
     const confirmed = await confirm(
-      "Delete every generated thumbnail? They are rebuilt on the next scan — this only costs time, never photos.",
+      "Delete every generated thumbnail? They are rebuilt on the next scan â€” this only costs time, never photos.",
       { title: "Clear thumbnail cache", kind: "warning" },
     );
     if (!confirmed) return;
@@ -97,12 +127,23 @@ export function GallerySettingsPage() {
     }
   };
 
+  const [tagBackfilling, setTagBackfilling] = useState(false);
+  const [aestheticBackfilling, setAestheticBackfilling] = useState(false);
+  const [nsfwDownloading, setNsfwDownloading] = useState(false);
+  const [nsfwBackfilling, setNsfwBackfilling] = useState(false);
+  const [captionDownloading, setCaptionDownloading] = useState(false);
+  const [captionBackfilling, setCaptionBackfilling] = useState(false);
+
   const downloadJob = jobs.find((j) => j.kind === "download_models" && j.status === "running");
   const backfillJob = jobs.find((j) => j.kind === "embed_backfill" && j.status === "running");
   const ocrDownloadJob = jobs.find((j) => j.kind === "download_ocr_models" && j.status === "running");
   const ocrBackfillJob = jobs.find((j) => j.kind === "ocr_backfill" && j.status === "running");
   const faceDownloadJob = jobs.find((j) => j.kind === "download_face_models" && j.status === "running");
   const faceBackfillJob = jobs.find((j) => j.kind === "face_backfill" && j.status === "running");
+  const tagBackfillJob = jobs.find((j) => j.kind === "tag_backfill" && j.status === "running");
+  const aestheticBackfillJob = jobs.find((j) => j.kind === "aesthetic_backfill" && j.status === "running");
+  const nsfwBackfillJob = jobs.find((j) => j.kind === "nsfw_backfill" && j.status === "running");
+  const captionBackfillJob = jobs.find((j) => j.kind === "caption_backfill" && j.status === "running");
   const thumbsJob = jobs.find((j) => j.kind === "thumbnail_backfill" && j.status === "running");
 
   const startDownload = async () => {
@@ -110,8 +151,8 @@ export function GallerySettingsPage() {
     try {
       await downloadAiModels();
       refreshAiStatus();
-    } catch {
-      /* surfaced via job status */
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setDownloading(false);
     }
@@ -132,8 +173,8 @@ export function GallerySettingsPage() {
     try {
       await downloadOcrModels();
       refreshAiStatus();
-    } catch {
-      /* surfaced via job status */
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setOcrDownloading(false);
     }
@@ -154,8 +195,8 @@ export function GallerySettingsPage() {
     try {
       await downloadFaceModels();
       refreshAiStatus();
-    } catch {
-      /* surfaced via job status */
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setFaceDownloading(false);
     }
@@ -168,6 +209,70 @@ export function GallerySettingsPage() {
       refreshAiStatus();
     } finally {
       setFaceBackfilling(false);
+    }
+  };
+
+  const startTagBackfill = async () => {
+    setTagBackfilling(true);
+    try {
+      await backfillTags();
+      refreshAiStatus();
+    } finally {
+      setTagBackfilling(false);
+    }
+  };
+
+  const startAestheticBackfill = async () => {
+    setAestheticBackfilling(true);
+    try {
+      await backfillAesthetic();
+      refreshAiStatus();
+    } finally {
+      setAestheticBackfilling(false);
+    }
+  };
+
+  const startNsfwDownload = async () => {
+    setNsfwDownloading(true);
+    try {
+      await downloadNsfwModel();
+      refreshAiStatus();
+    } catch (cause) {
+      setFailure(String(cause));
+    } finally {
+      setNsfwDownloading(false);
+    }
+  };
+
+  const startNsfwBackfill = async () => {
+    setNsfwBackfilling(true);
+    try {
+      await backfillNsfw();
+      refreshAiStatus();
+    } finally {
+      setNsfwBackfilling(false);
+    }
+  };
+
+  const startCaptionDownload = async () => {
+    setCaptionDownloading(true);
+    try {
+      await downloadCaptionModel();
+      refreshAiStatus();
+    } catch (cause) {
+      setFailure(String(cause));
+    } finally {
+      setCaptionDownloading(false);
+    }
+  };
+
+  const startCaptionBackfill = async () => {
+    setCaptionBackfilling(true);
+    try {
+      await backfillCaptions();
+      refreshAiStatus();
+    } finally {
+      setCaptionBackfilling(false);
     }
   };
 
@@ -196,6 +301,24 @@ export function GallerySettingsPage() {
         title="Make Hive yours."
         description="Choose which folders Hive watches and how your library feels."
       />
+      {failure && (
+        <div className="mt-6 flex max-w-4xl items-start justify-between gap-4 rounded-2xl border border-red-500/30 bg-red-500/5 px-4 py-3">
+          <div className="flex min-w-0 items-start gap-2.5">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-red-600" />
+            <div className="min-w-0">
+              <p className="text-xs font-extrabold text-red-600">That didn’t work</p>
+              <p className="mt-0.5 break-words text-[11px] text-red-600/90">{failure}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setFailure(null)}
+            className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold text-red-600 transition hover:bg-red-500/10"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <div className="mt-7 grid max-w-4xl gap-5">
         <Card className="p-6">
           <div className="flex items-center gap-3">
@@ -228,7 +351,7 @@ export function GallerySettingsPage() {
                   <span className="block truncate text-xs font-semibold text-ink">{folder.path}</span>
                   {!folder.isWatched && (
                     <span className="block text-[10px] font-bold text-ink-muted">
-                      Watching paused — new files are not picked up
+                      Watching paused â€” new files are not picked up
                     </span>
                   )}
                 </span>
@@ -279,7 +402,7 @@ export function GallerySettingsPage() {
                 onClick={startThumbnailRebuild}
               >
                 {thumbsJob
-                  ? `Rebuilding… ${thumbsJob.current}/${thumbsJob.total}`
+                  ? `Rebuildingâ€¦ ${thumbsJob.current}/${thumbsJob.total}`
                   : "Rebuild missing thumbnails"}
               </Button>
             )}
@@ -294,7 +417,7 @@ export function GallerySettingsPage() {
             <div>
               <h2 className="text-base font-extrabold text-ink">AI features</h2>
               <p className="mt-0.5 text-xs text-ink-muted">
-                Semantic search runs a local CLIP model — everything happens on this device.
+                Semantic search runs a local CLIP model â€” everything happens on this device.
               </p>
             </div>
           </div>
@@ -305,7 +428,7 @@ export function GallerySettingsPage() {
                 <p className="text-xs font-bold text-ink">Local AI model</p>
                 <p className="mt-0.5 text-[11px] text-ink-muted">
                   {downloadJob
-                    ? `Downloading… ${formatBytes(downloadJob.current)} / ${formatBytes(downloadJob.total)}`
+                    ? `Downloadingâ€¦ ${formatBytes(downloadJob.current)} / ${formatBytes(downloadJob.total)}`
                     : "~150 MB, one-time download from Hugging Face."}
                 </p>
               </div>
@@ -315,7 +438,7 @@ export function GallerySettingsPage() {
                 onClick={startDownload}
                 className="shrink-0"
               >
-                {downloadJob ? "Downloading…" : "Download"}
+                {downloadJob ? "Downloadingâ€¦" : "Download"}
               </Button>
             </div>
           ) : (
@@ -324,7 +447,7 @@ export function GallerySettingsPage() {
                 <p className="text-xs font-bold text-ink">Semantic search is ready</p>
                 <p className="mt-0.5 text-[11px] text-ink-muted">
                   {backfillJob
-                    ? `Embedding photos… ${backfillJob.current}/${backfillJob.total}`
+                    ? `Embedding photosâ€¦ ${backfillJob.current}/${backfillJob.total}`
                     : `${aiStatus.embeddedCount.toLocaleString()} of ${aiStatus.eligibleCount.toLocaleString()} photos embedded.`}
                 </p>
               </div>
@@ -335,7 +458,7 @@ export function GallerySettingsPage() {
                   onClick={startBackfill}
                   className="shrink-0"
                 >
-                  {backfillJob ? "Working…" : "Embed remaining"}
+                  {backfillJob ? "Workingâ€¦" : "Embed remaining"}
                 </Button>
               )}
             </div>
@@ -349,7 +472,7 @@ export function GallerySettingsPage() {
                   <p className="text-xs font-bold text-ink">Text in photos (OCR)</p>
                   <p className="mt-0.5 text-[11px] text-ink-muted">
                     {ocrDownloadJob
-                      ? `Downloading… ${formatBytes(ocrDownloadJob.current)} / ${formatBytes(ocrDownloadJob.total)}`
+                      ? `Downloadingâ€¦ ${formatBytes(ocrDownloadJob.current)} / ${formatBytes(ocrDownloadJob.total)}`
                       : "~96 MB, lets search find text inside photos."}
                   </p>
                 </div>
@@ -361,7 +484,7 @@ export function GallerySettingsPage() {
                 onClick={startOcrDownload}
                 className="shrink-0"
               >
-                {ocrDownloadJob ? "Downloading…" : "Download"}
+                {ocrDownloadJob ? "Downloadingâ€¦" : "Download"}
               </Button>
             </div>
           ) : (
@@ -372,7 +495,7 @@ export function GallerySettingsPage() {
                   <p className="text-xs font-bold text-ink">Text in photos is searchable</p>
                   <p className="mt-0.5 text-[11px] text-ink-muted">
                     {ocrBackfillJob
-                      ? `Reading photos… ${ocrBackfillJob.current}/${ocrBackfillJob.total}`
+                      ? `Reading photosâ€¦ ${ocrBackfillJob.current}/${ocrBackfillJob.total}`
                       : `${aiStatus.ocrIndexedCount.toLocaleString()} of ${aiStatus.eligibleCount.toLocaleString()} photos scanned for text.`}
                   </p>
                 </div>
@@ -384,7 +507,7 @@ export function GallerySettingsPage() {
                   onClick={startOcrBackfill}
                   className="shrink-0"
                 >
-                  {ocrBackfillJob ? "Working…" : "Scan remaining"}
+                  {ocrBackfillJob ? "Workingâ€¦" : "Scan remaining"}
                 </Button>
               )}
             </div>
@@ -398,7 +521,7 @@ export function GallerySettingsPage() {
                   <p className="text-xs font-bold text-ink">People (face recognition)</p>
                   <p className="mt-0.5 text-[11px] text-ink-muted">
                     {faceDownloadJob
-                      ? `Downloading… ${formatBytes(faceDownloadJob.current)} / ${formatBytes(faceDownloadJob.total)}`
+                      ? `Downloadingâ€¦ ${formatBytes(faceDownloadJob.current)} / ${formatBytes(faceDownloadJob.total)}`
                       : "~67 MB, groups photos by the people in them."}
                   </p>
                 </div>
@@ -410,7 +533,7 @@ export function GallerySettingsPage() {
                 onClick={startFaceDownload}
                 className="shrink-0"
               >
-                {faceDownloadJob ? "Downloading…" : "Download"}
+                {faceDownloadJob ? "Downloadingâ€¦" : "Download"}
               </Button>
             </div>
           ) : (
@@ -421,7 +544,7 @@ export function GallerySettingsPage() {
                   <p className="text-xs font-bold text-ink">People</p>
                   <p className="mt-0.5 text-[11px] text-ink-muted">
                     {faceBackfillJob
-                      ? `Scanning for faces… ${faceBackfillJob.current}/${faceBackfillJob.total}`
+                      ? `Scanning for facesâ€¦ ${faceBackfillJob.current}/${faceBackfillJob.total}`
                       : `${aiStatus.peopleCount.toLocaleString()} people found in ${aiStatus.facesIndexedCount.toLocaleString()} of ${aiStatus.eligibleCount.toLocaleString()} photos.`}
                   </p>
                 </div>
@@ -433,11 +556,126 @@ export function GallerySettingsPage() {
                   onClick={startFaceBackfill}
                   className="shrink-0"
                 >
-                  {faceBackfillJob ? "Working…" : "Scan remaining"}
+                  {faceBackfillJob ? "Workingâ€¦" : "Scan remaining"}
                 </Button>
               )}
             </div>
           )}
+
+          {/* Auto-tagging Card */}
+          <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+            <div className="min-w-0 flex items-center gap-3">
+              <Tag size={16} className="shrink-0 text-honey-deep" />
+              <div>
+                <p className="text-xs font-bold text-ink">Auto-Tagging (CLIP)</p>
+                <p className="mt-0.5 text-[11px] text-ink-muted">
+                  {tagBackfillJob
+                    ? `Tagging photosâ€¦ ${tagBackfillJob.current}/${tagBackfillJob.total}`
+                    : "Automatically tags photos with categories (nature, dogs, food, etc.)."}
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="secondary"
+              disabled={tagBackfilling || !!tagBackfillJob}
+              onClick={startTagBackfill}
+              className="shrink-0"
+            >
+              {tagBackfillJob ? "Taggingâ€¦" : "Run Auto-Tagging"}
+            </Button>
+          </div>
+
+          {/* Aesthetic Ranking Card */}
+          <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+            <div className="min-w-0 flex items-center gap-3">
+              <Star size={16} className="shrink-0 text-honey-deep" />
+              <div>
+                <p className="text-xs font-bold text-ink">Aesthetic Ranking (LAION)</p>
+                <p className="mt-0.5 text-[11px] text-ink-muted">
+                  {aestheticBackfillJob
+                    ? `Scoring photos… ${aestheticBackfillJob.current}/${aestheticBackfillJob.total}`
+                    : "Nothing to download — scores are read from the CLIP embeddings you already have."}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button
+                variant="secondary"
+                disabled={aestheticBackfilling || !!aestheticBackfillJob}
+                onClick={startAestheticBackfill}
+              >
+                {aestheticBackfillJob ? "Scoringâ€¦" : "Score photos"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Sensitive Content Detection Card */}
+          <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+            <div className="min-w-0 flex items-center gap-3">
+              <Eye size={16} className="shrink-0 text-honey-deep" />
+              <div>
+                <p className="text-xs font-bold text-ink">Sensitive Content Detection (NSFW)</p>
+                <p className="mt-0.5 text-[11px] text-ink-muted">
+                  {nsfwBackfillJob
+                    ? `Scanning sensitive contentâ€¦ ${nsfwBackfillJob.current}/${nsfwBackfillJob.total}`
+                    : "~10 MB model, automatically flags and hides sensitive images."}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              {!aiStatus?.nsfwModelsReady && (
+                <Button
+                  variant="secondary"
+                  icon={<Download size={14} />}
+                  disabled={nsfwDownloading}
+                  onClick={startNsfwDownload}
+                >
+                  {nsfwProgress ? `${nsfwProgress.percent}%` : "Download"}
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                disabled={nsfwBackfilling || !!nsfwBackfillJob}
+                onClick={startNsfwBackfill}
+              >
+                {nsfwBackfillJob ? "Scanningâ€¦" : "Scan library"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Image Captions Card */}
+          <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+            <div className="min-w-0 flex items-center gap-3">
+              <FileText size={16} className="shrink-0 text-honey-deep" />
+              <div>
+                <p className="text-xs font-bold text-ink">Image Captions (ViT-GPT2)</p>
+                <p className="mt-0.5 text-[11px] text-ink-muted">
+                  {captionBackfillJob
+                    ? `Generating captionsâ€¦ ${captionBackfillJob.current}/${captionBackfillJob.total}`
+                    : "Generates natural text descriptions of your photos."}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              {!aiStatus?.captionModelsReady && (
+                <Button
+                  variant="secondary"
+                  icon={<Download size={14} />}
+                  disabled={captionDownloading}
+                  onClick={startCaptionDownload}
+                >
+                  {captionProgress ? `${captionProgress.percent}%` : "Download"}
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                disabled={captionBackfilling || !!captionBackfillJob}
+                onClick={startCaptionBackfill}
+              >
+                {captionBackfillJob ? "Generatingâ€¦" : "Generate captions"}
+              </Button>
+            </div>
+          </div>
         </Card>
 
         <Card className="p-6">
@@ -492,17 +730,17 @@ export function GallerySettingsPage() {
             {[
               {
                 label: "Originals",
-                value: storage ? formatBytes(storage.originalBytes) : "—",
+                value: storage ? formatBytes(storage.originalBytes) : "â€”",
                 hint: "Your own files",
               },
               {
                 label: "Thumbnails",
-                value: storage ? formatBytes(storage.thumbnailBytes) : "—",
+                value: storage ? formatBytes(storage.thumbnailBytes) : "â€”",
                 hint: "Created by Hive",
               },
               {
                 label: "Database",
-                value: storage ? formatBytes(storage.databaseBytes) : "—",
+                value: storage ? formatBytes(storage.databaseBytes) : "â€”",
                 hint: "Index and metadata",
               },
             ].map((entry) => (
@@ -530,7 +768,7 @@ export function GallerySettingsPage() {
             <p className="text-xs font-extrabold text-ink">Cache ceiling</p>
             <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-ink-muted">
               Thumbnails otherwise grow for as long as you add photos. With a ceiling set, Hive
-              drops the ones you have not looked at in a while until the cache fits — they are
+              drops the ones you have not looked at in a while until the cache fits â€” they are
               rebuilt on demand, so nothing is lost but time.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -572,11 +810,11 @@ export function GallerySettingsPage() {
           </div>
           <div className="mt-5 flex flex-wrap gap-x-8 gap-y-3 text-xs">
             {[
-              ["Items indexed", stats ? formatCount(stats.totalItems, "item") : "—"],
-              ["Photos", stats ? stats.imageCount.toLocaleString() : "—"],
-              ["Videos", stats ? stats.videoCount.toLocaleString() : "—"],
-              ["Albums", stats ? stats.albumCount.toLocaleString() : "—"],
-              ["Geotagged", stats ? stats.placeCount.toLocaleString() : "—"],
+              ["Items indexed", stats ? formatCount(stats.totalItems, "item") : "â€”"],
+              ["Photos", stats ? stats.imageCount.toLocaleString() : "â€”"],
+              ["Videos", stats ? stats.videoCount.toLocaleString() : "â€”"],
+              ["Albums", stats ? stats.albumCount.toLocaleString() : "â€”"],
+              ["Geotagged", stats ? stats.placeCount.toLocaleString() : "â€”"],
               ["Watched folders", formatCount(folders.length, "folder")],
             ].map(([label, value]) => (
               <div key={label}>
@@ -615,7 +853,7 @@ export function GallerySettingsPage() {
           <p className="mt-5 text-xs leading-relaxed text-ink-muted">
             Hive is local-first. Your photos are read from the folders you choose and never copied
             anywhere else. The index, thumbnails, AI models and preferences all live in your own
-            user profile, and recognition runs on this machine — no image is ever uploaded.
+            user profile, and recognition runs on this machine â€” no image is ever uploaded.
           </p>
 
           <div className="mt-5 rounded-2xl border border-ink/[.08] bg-canvas p-4">
@@ -623,9 +861,9 @@ export function GallerySettingsPage() {
               <div>
                 <p className="text-xs font-extrabold text-ink">Look up place names</p>
                 <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-ink-muted">
-                  Turns coordinates into names like “Lyon, France” on the Places page. There is no
+                  Turns coordinates into names like â€œLyon, Franceâ€ on the Places page. There is no
                   offline way to do this, so lookups go to OpenStreetMap. What leaves your machine
-                  is a pair of coordinates rounded to about a kilometre — no photo, no filename, no
+                  is a pair of coordinates rounded to about a kilometre â€” no photo, no filename, no
                   identifier. Every answer is cached, so a place is looked up once and never again.
                 </p>
               </div>
@@ -651,7 +889,59 @@ export function GallerySettingsPage() {
               </button>
             </div>
             <p className="mt-3 text-[10px] font-bold text-ink-muted">
-              {geocoding ? "On — names are fetched when you ask for them" : "Off — coordinates only"}
+              {geocoding ? "On â€” names are fetched when you ask for them" : "Off â€” coordinates only"}
+            </p>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-extrabold text-ink">File sensitive photos away</p>
+                <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-ink-muted">
+                  Photos the model scores above the threshold are always covered in the grid, and one
+                  click reveals them. Turning this on also moves them out of the library into Hidden.
+                  That is not a display choice â€” a wrongly flagged photo disappears from view, and no
+                  classifier is right often enough for that to happen unasked, so it is off by default.
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={nsfwPolicy.autoHide}
+                onClick={() => void saveNsfwPolicy(nsfwPolicy.threshold, !nsfwPolicy.autoHide)}
+                className={cn(
+                  "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition",
+                  nsfwPolicy.autoHide ? "bg-honey" : "bg-ink/20",
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-0.5 size-5 rounded-full bg-white shadow transition-all",
+                    nsfwPolicy.autoHide ? "left-[22px]" : "left-0.5",
+                  )}
+                />
+              </button>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <span className="text-[11px] font-bold text-ink-muted">Sensitive above</span>
+              {[0.5, 0.7, 0.85].map((value) => (
+                <button
+                  key={value}
+                  onClick={() => void saveNsfwPolicy(value, nsfwPolicy.autoHide)}
+                  className={cn(
+                    "rounded-xl border px-3 py-1.5 text-[11px] font-bold transition",
+                    Math.abs(nsfwPolicy.threshold - value) < 0.001
+                      ? "border-honey/50 bg-honey/15 text-honey-deep"
+                      : "border-ink/[.08] bg-panel text-ink-soft hover:border-honey/40",
+                  )}
+                >
+                  {value === 0.5 ? "50% â€” strict" : value === 0.7 ? "70% â€” balanced" : "85% â€” lenient"}
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-[10px] font-bold text-ink-muted">
+              Changing the threshold re-covers the grid straight away; it does not rescan, and it
+              never un-hides a photo that was already filed away.
             </p>
           </div>
         </Card>
