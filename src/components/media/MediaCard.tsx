@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Check, Heart, Maximize2, VideoIcon } from "lucide-react";
+import { Check, Eye, Heart, Maximize2, ShieldAlert, VideoIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { MediaThumb } from "@/components/media/MediaThumb";
+import { useNsfwPolicy } from "@/hooks/useNsfwPolicy";
 import { setFavorite } from "@/lib/tauri";
 import type { MediaItem } from "@/types/media";
 import { cn } from "@/utils/cn";
@@ -23,6 +24,13 @@ export function MediaCard({
   overlayActions?: ReactNode;
 }) {
   const selectable = typeof onToggleSelect === "function";
+
+  // Covering is per-card and resets on navigation: revealing one photo should
+  // never quietly reveal the rest of the grid. The threshold comes from the
+  // backend so it cannot drift from the one the scoring job applies.
+  const { threshold } = useNsfwPolicy();
+  const [revealed, setRevealed] = useState(false);
+  const isSensitive = (item.nsfwScore ?? 0) >= threshold && !revealed;
 
   // The heart fills on click, not on the round trip to SQLite. Cleared as soon
   // as the real value arrives, so the prop stays the source of truth.
@@ -51,8 +59,31 @@ export function MediaCard({
       <MediaThumb
         mediaId={item.id}
         alt={item.filename}
-        className="relative size-full object-cover transition duration-700 group-hover:scale-[1.035]"
+        className={cn(
+          "relative size-full object-cover transition duration-700 group-hover:scale-[1.035]",
+          // Blurred rather than hidden: you can still tell your photos apart.
+          isSensitive && "scale-110 blur-2xl",
+        )}
       />
+
+      {isSensitive && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-black/45 p-4 text-center">
+          <ShieldAlert size={22} className="text-white/90" />
+          <p className="text-[11px] font-extrabold text-white">Possibly sensitive</p>
+          <button
+            onClick={(event) => {
+              // Inside a Link, so the click must not also open the viewer.
+              event.preventDefault();
+              event.stopPropagation();
+              setRevealed(true);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-white/90 px-3 py-1.5 text-[11px] font-bold text-ink transition hover:bg-white"
+          >
+            <Eye size={12} />
+            Show
+          </button>
+        </div>
+      )}
       {item.mediaType === "video" && (
         <span className="absolute left-3 top-3 grid size-7 place-items-center rounded-full bg-black/55 text-white">
           <VideoIcon size={13} />
