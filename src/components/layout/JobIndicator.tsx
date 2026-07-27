@@ -9,10 +9,13 @@ const JOB_LABELS: Record<string, string> = {
   download_models: "Downloading AI model",
   download_ocr_models: "Downloading OCR model",
   download_face_models: "Downloading face model",
+  download_llm_model: "Downloading chat model",
   embed_backfill: "Embedding photos",
   ocr_backfill: "Reading text in photos",
   face_backfill: "Finding faces",
   scan_duplicates: "Scanning for duplicates",
+  thumbnail_backfill: "Rebuilding thumbnails",
+  gallery_chat: "Answering",
 };
 
 export function JobIndicator() {
