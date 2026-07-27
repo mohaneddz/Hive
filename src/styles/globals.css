@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Theme is a `.dark` class on <html> (see useTheme.ts), not OS preference —
+   without this, `dark:` utilities would silently follow prefers-color-scheme instead. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-honey: #f5a623;
   --color-honey-dark: #ffb946;
