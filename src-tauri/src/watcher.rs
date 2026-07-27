@@ -65,6 +65,9 @@ impl WatcherRegistry {
                     for (media_id, path) in &newly_indexed {
                         crate::commands::ai::try_embed_image(&ai, &conn, media_id, path);
                         crate::commands::ai::try_extract_ocr_text(&ai, &conn, media_id, path);
+                        // Must follow embedding: tagging compares the image's CLIP
+                        // vector against the tag vocabulary, so the vector has to exist.
+                        crate::commands::tagging::try_auto_tag(&ai, &conn, media_id);
                     }
                     let _ = app.emit(EVENT_MEDIA_CHANGED, &fid);
                 }

@@ -9,7 +9,7 @@ pub(crate) fn row_to_media_item(conn: &Connection, id: &str) -> rusqlite::Result
         "SELECT id, folder_id, path, filename, hash, size, width, height, duration_ms,
                 mime_type, media_type, taken_at, created_at, modified_at, indexed_at,
                 is_favorite, is_trashed, trashed_at, is_hidden, is_archived, last_viewed_at,
-                title, description, taken_at_override, edited_at
+                title, description, taken_at_override, edited_at, nsfw_score
          FROM media_items WHERE id = ?1",
         params![id],
         |r| {
@@ -39,6 +39,7 @@ pub(crate) fn row_to_media_item(conn: &Connection, id: &str) -> rusqlite::Result
                 description: r.get(22)?,
                 taken_at_override: r.get(23)?,
                 edited_at: r.get(24)?,
+                nsfw_score: r.get(25)?,
                 exif: None,
                 thumbnail_path: None,
             })
@@ -180,6 +181,9 @@ pub fn scan_folder(
                 }
                 crate::commands::ai::try_embed_image(&ai, &conn, media_id, path);
                 crate::commands::ai::try_extract_ocr_text(&ai, &conn, media_id, path);
+                // Must follow embedding: tagging compares the image's CLIP vector
+                // against the tag vocabulary, so the vector has to exist first.
+                crate::commands::tagging::try_auto_tag(&ai, &conn, media_id);
                 jobs::emit_progress(
                     &app,
                     &conn,

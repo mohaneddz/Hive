@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+﻿use std::path::{Path, PathBuf};
 
 use futures_util::StreamExt;
 
@@ -54,6 +54,35 @@ pub const FACE_FILES: &[ModelFile] = &[
     },
 ];
 
+/// ViT classifier for sensitive content, fine-tuned on a safe/NSFW split.
+/// The quantized export is a quarter of the size for the same verdict.
+pub const NSFW_FILES: &[ModelFile] = &[
+    ModelFile {
+        url: "https://huggingface.co/AdamCodd/vit-base-nsfw-detector/resolve/main/onnx/model_quantized.onnx",
+        filename: "nsfw.onnx",
+    },
+];
+
+/// ViT-GPT2 image captioning. The encoder (ViT) turns the image into visual
+/// features; the decoder (GPT-2) writes the sentence one token at a time.
+///
+/// `decoder_model_merged` bundles the with-past and without-past graphs into a
+/// single file, which is what makes step-by-step generation practical.
+pub const CAPTION_FILES: &[ModelFile] = &[
+    ModelFile {
+        url: "https://huggingface.co/Xenova/vit-gpt2-image-captioning/resolve/main/onnx/encoder_model_quantized.onnx",
+        filename: "encoder.onnx",
+    },
+    ModelFile {
+        url: "https://huggingface.co/Xenova/vit-gpt2-image-captioning/resolve/main/onnx/decoder_model_merged_quantized.onnx",
+        filename: "decoder.onnx",
+    },
+    ModelFile {
+        url: "https://huggingface.co/Xenova/vit-gpt2-image-captioning/resolve/main/vocab.json",
+        filename: "vocab.json",
+    },
+];
+
 pub fn clip_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("models").join("clip")
 }
@@ -64,6 +93,14 @@ pub fn ocr_dir(app_data_dir: &Path) -> PathBuf {
 
 pub fn face_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("models").join("faces")
+}
+
+pub fn nsfw_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("models").join("nsfw")
+}
+
+pub fn caption_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("models").join("caption")
 }
 
 fn models_ready(dir: &Path, files: &[ModelFile]) -> bool {
@@ -80,6 +117,14 @@ pub fn ocr_models_ready(app_data_dir: &Path) -> bool {
 
 pub fn face_models_ready(app_data_dir: &Path) -> bool {
     models_ready(&face_dir(app_data_dir), FACE_FILES)
+}
+
+pub fn nsfw_models_ready(app_data_dir: &Path) -> bool {
+    models_ready(&nsfw_dir(app_data_dir), NSFW_FILES)
+}
+
+pub fn caption_models_ready(app_data_dir: &Path) -> bool {
+    models_ready(&caption_dir(app_data_dir), CAPTION_FILES)
 }
 
 /// Downloads any files missing from `dir`, reporting (bytes_done, bytes_total) via `on_progress`.
@@ -145,3 +190,12 @@ pub async fn ensure_ocr_models(app_data_dir: &Path, on_progress: impl FnMut(u64,
 pub async fn ensure_face_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
     ensure_models(&face_dir(app_data_dir), FACE_FILES, on_progress).await
 }
+
+pub async fn ensure_nsfw_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
+    ensure_models(&nsfw_dir(app_data_dir), NSFW_FILES, on_progress).await
+}
+
+pub async fn ensure_caption_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
+    ensure_models(&caption_dir(app_data_dir), CAPTION_FILES, on_progress).await
+}
+

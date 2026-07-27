@@ -23,6 +23,11 @@ pub struct AiStatus {
     pub face_model_loaded: bool,
     pub faces_indexed_count: i64,
     pub people_count: i64,
+    /// Whether each optional model is on disk. The Download button reads these
+    /// to know when there is nothing left to fetch. Aesthetic scoring has no
+    /// entry here because it downloads nothing.
+    pub nsfw_models_ready: bool,
+    pub caption_models_ready: bool,
 }
 
 #[tauri::command]
@@ -75,6 +80,8 @@ pub fn get_ai_status(state: State<'_, AppState>) -> Result<AiStatus, String> {
         people_count,
         ocr_model_loaded,
         ocr_indexed_count,
+        nsfw_models_ready: model_manager::nsfw_models_ready(&state.app_data_dir),
+        caption_models_ready: model_manager::caption_models_ready(&state.app_data_dir),
     })
 }
 
