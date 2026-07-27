@@ -143,6 +143,34 @@ CREATE TABLE IF NOT EXISTS geocode_cache (
 CREATE INDEX IF NOT EXISTS idx_media_items_trashed ON media_items(is_trashed);
 CREATE INDEX IF NOT EXISTS idx_faces_media ON faces(media_id);
 CREATE INDEX IF NOT EXISTS idx_faces_person ON faces(person_id);
+
+CREATE TABLE IF NOT EXISTS tags (
+    id TEXT PRIMARY KEY,
+    media_id TEXT NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    source TEXT NOT NULL DEFAULT 'auto',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tags_media ON tags(media_id);
+CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_media_tag ON tags(media_id, tag);
+
+CREATE TABLE IF NOT EXISTS smart_albums (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    rules TEXT NOT NULL,
+    cover_media_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS captions (
+    media_id TEXT PRIMARY KEY REFERENCES media_items(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    model TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 "#;
 
 /// Adds `column` to `table` if it isn't there yet. `CREATE TABLE IF NOT EXISTS` in MIGRATIONS
@@ -179,6 +207,18 @@ pub fn open(db_path: &Path) -> rusqlite::Result<Connection> {
     ensure_column(&conn, "media_items", "edited_at", "TEXT")?;
     // Sharpness, measured once and kept so a rescan is instant.
     ensure_column(&conn, "media_items", "blur_score", "REAL")?;
+    // AI scoring columns, populated lazily by the aesthetic and NSFW backfill jobs.
+    ensure_column(&conn, "media_items", "aesthetic_score", "REAL")?;
+    ensure_column(&conn, "media_items", "nsfw_score", "REAL")?;
+    // How a smart album joins its rules: 'all' (every rule must match) or 'any'
+    // (one is enough). Albums saved before this column existed were all-or-nothing,
+    // which is exactly what the default preserves.
+    ensure_column(
+        &conn,
+        "smart_albums",
+        "match_type",
+        "TEXT NOT NULL DEFAULT 'all'",
+    )?;
 
     // Indexes over the columns just added. They cannot sit in MIGRATIONS: on a
     // database created by an earlier version those columns do not exist yet when
