@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Theme is a `.dark` class on <html> (see useTheme.ts), not OS preference —
+   without this, `dark:` utilities would silently follow prefers-color-scheme instead. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-honey: #f5a623;
   --color-honey-dark: #ffb946;
@@ -71,11 +75,6 @@ button { cursor: pointer; }
 .search-input { width: 100%; height: 42px; border: 1px solid rgb(127 116 84 / 15%); border-radius: 12px; padding: 0 14px 0 39px; color: var(--content-ink); background: var(--surface-panel); outline: none; font-size: 12px; transition: border-color .15s ease, box-shadow .15s ease; }
 .search-input::placeholder { color: var(--content-ink-muted); }
 .search-input:focus { border-color: rgb(245 166 35 / 65%); box-shadow: 0 0 0 3px rgb(245 166 35 / 12%); }
-/* The compact sibling of .search-input, for the selects and short fields that sit
-   several-to-a-row inside a dialog. */
-.select-input { height: 34px; border: 1px solid rgb(127 116 84 / 15%); border-radius: 11px; padding: 0 10px; color: var(--content-ink); background: var(--surface-panel); outline: none; font-size: 12px; font-weight: 700; transition: border-color .15s ease, box-shadow .15s ease; }
-.select-input::placeholder { font-weight: 500; color: var(--content-ink-muted); }
-.select-input:focus { border-color: rgb(245 166 35 / 65%); box-shadow: 0 0 0 3px rgb(245 166 35 / 12%); }
 .eyebrow { margin: 0; color: var(--color-honey-deep); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
 .artwork-frame { position: relative; overflow: hidden; border: 1px solid rgb(127 127 127 / 14%); border-radius: 14px; background: var(--surface-panel); box-shadow: 0 10px 26px rgb(75 52 10 / 8%); }
 .dark .artwork-frame { border-color: rgb(255 255 255 / 8%); box-shadow: 0 10px 26px rgb(0 0 0 / 40%); }
