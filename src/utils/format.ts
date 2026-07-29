@@ -11,6 +11,18 @@ export function formatCount(count: number, singular: string, plural = `${singula
   return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
 }
 
+/** "0:18", "12:03", or "1:04:22" for anything past an hour. */
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 /** Parses the ISO strings the backend sends, tolerating the EXIF-derived ones. */
 function toDate(value: string | null | undefined): Date | null {
   if (!value) return null;
