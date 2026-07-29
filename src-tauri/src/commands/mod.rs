@@ -5,6 +5,7 @@ pub mod backup;
 pub mod best_photo;
 pub mod batch;
 pub mod captions;
+pub mod chat;
 pub mod duplicates;
 pub mod editor;
 pub mod explorer;

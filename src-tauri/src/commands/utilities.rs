@@ -1,4 +1,4 @@
-﻿//! Library maintenance that is not duplicate detection â€” that lives in
+//! Library maintenance that is not duplicate detection — that lives in
 //! `commands::duplicates`, which compares images perceptually rather than
 //! byte-for-byte.
 
@@ -12,7 +12,7 @@ use tauri::State;
 
 /// Walks every indexed row and checks the file behind it. "Missing" means the
 /// path is gone; "broken" means the file is there but no longer decodes.
-/// Videos are only checked for existence â€” decoding them is the AI pipeline's job.
+/// Videos are only checked for existence — decoding them is the AI pipeline's job.
 #[tauri::command]
 pub fn scan_library_health(state: State<'_, AppState>) -> Result<LibraryHealth, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
@@ -51,7 +51,7 @@ pub fn scan_library_health(state: State<'_, AppState>) -> Result<LibraryHealth, 
     })
 }
 
-/// Drops rows whose file no longer exists. Nothing is deleted on disk â€” there is
+/// Drops rows whose file no longer exists. Nothing is deleted on disk — there is
 /// nothing left to delete.
 #[tauri::command]
 pub fn remove_missing_entries(state: State<'_, AppState>) -> Result<i64, String> {
@@ -138,7 +138,7 @@ pub fn get_storage_stats(state: State<'_, AppState>) -> Result<StorageStats, Str
 }
 
 /// Deletes every generated thumbnail. They are rebuilt on the next scan, so this
-/// is always safe â€” it only costs time, never data.
+/// is always safe — it only costs time, never data.
 #[tauri::command]
 pub fn clear_thumbnail_cache(state: State<'_, AppState>) -> Result<i64, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
