@@ -92,6 +92,15 @@ pub fn run() {
                     }
                 });
             }
+            if ai::model_manager::llm_models_ready(&app_data_dir) {
+                let ai_state = ai_state.clone();
+                let llm_dir = ai::model_manager::llm_dir(&app_data_dir);
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Ok(model) = ai::llm::ChatModel::load(&llm_dir) {
+                        *ai_state.llm.lock().unwrap() = Some(model);
+                    }
+                });
+            }
 
             app.manage(AppState {
                 db_path,
@@ -191,6 +200,8 @@ pub fn run() {
             commands::preferences::set_nsfw_policy,
             commands::preferences::get_shortcut_overrides,
             commands::preferences::set_shortcut_overrides,
+            commands::chat::download_llm_model,
+            commands::chat::gallery_chat,
             commands::tagging::get_tags,
             commands::tagging::list_all_tags,
             commands::tagging::list_media_by_tag,
