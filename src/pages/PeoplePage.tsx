@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Check, Pencil, Users } from "lucide-react";
+import { Check, Download, Loader2, Pencil, ScanFace, Users } from "lucide-react";
 
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { FaceCrop } from "@/components/media/FaceCrop";
 import { MediaCard } from "@/components/media/MediaCard";
 import { useAiStatus } from "@/hooks/useAiStatus";
-import { getPersonMedia, isTauri, listPeople, renamePerson } from "@/lib/tauri";
+import { useJobProgress } from "@/hooks/useJobProgress";
+import { backfillFaces, downloadFaceModels, getPersonMedia, isTauri, listPeople, renamePerson } from "@/lib/tauri";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import type { MediaItem, PersonSummary } from "@/types/media";
 import { cn } from "@/utils/cn";
@@ -54,10 +55,16 @@ function PersonCard({ person, onRenamed }: { person: PersonSummary; onRenamed: (
 }
 
 export function PeoplePage() {
-  const { status: aiStatus } = useAiStatus();
+  const { status: aiStatus, refresh: refreshAiStatus } = useAiStatus();
+  const jobs = useJobProgress();
   const [people, setPeople] = useState<PersonSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [media, setMedia] = useState<MediaItem[]>([]);
+  const [downloading, setDownloading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+
+  const downloadJob = jobs.find((j) => j.kind === "download_face_models" && j.status === "running");
+  const scanJob = jobs.find((j) => j.kind === "face_backfill" && j.status === "running");
 
   const refresh = () => {
     if (!isTauri()) return;
@@ -67,9 +74,34 @@ export function PeoplePage() {
   useEffect(refresh, []);
 
   useEffect(() => {
+    if (scanJob) refresh();
+  }, [scanJob]);
+
+  useEffect(() => {
     if (!selected) return;
     getPersonMedia(selected).then(setMedia);
   }, [selected]);
+
+  const startDownload = async () => {
+    setDownloading(true);
+    try {
+      await downloadFaceModels();
+      refreshAiStatus();
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const startScan = async () => {
+    setScanning(true);
+    try {
+      await backfillFaces();
+      refreshAiStatus();
+      refresh();
+    } finally {
+      setScanning(false);
+    }
+  };
 
   if (aiStatus && !aiStatus.faceModelsReady) {
     return (
@@ -85,12 +117,16 @@ export function PeoplePage() {
           </div>
           <p className="text-sm font-extrabold text-ink">Face recognition isn't set up yet</p>
           <p className="max-w-sm text-xs text-ink-muted">
-            Detection and matching run entirely on-device — nothing is uploaded. Download the
-            model from Settings, then scan your library to get started.
+            Detection and matching run entirely on-device — nothing is uploaded, ~67 MB one-time
+            download.
           </p>
-          <Link to="/settings" className="text-xs font-bold text-honey-deep hover:underline">
-            Go to Settings
-          </Link>
+          <Button
+            icon={downloading || downloadJob ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+            disabled={downloading || !!downloadJob}
+            onClick={startDownload}
+          >
+            {downloadJob ? "Downloading…" : "Download & enable"}
+          </Button>
         </Card>
       </div>
     );
@@ -106,14 +142,32 @@ export function PeoplePage() {
             ? `${aiStatus.peopleCount} ${aiStatus.peopleCount === 1 ? "person" : "people"} found across ${aiStatus.facesIndexedCount.toLocaleString()} scanned photos.`
             : "Grouped automatically by face similarity."
         }
+        action={
+          aiStatus && aiStatus.facesIndexedCount < aiStatus.eligibleCount ? (
+            <Button
+              variant="secondary"
+              icon={scanning || scanJob ? <Loader2 size={14} className="animate-spin" /> : <ScanFace size={14} />}
+              disabled={scanning || !!scanJob}
+              onClick={startScan}
+            >
+              {scanJob ? `Scanning… ${scanJob.current}/${scanJob.total}` : "Scan for faces"}
+            </Button>
+          ) : undefined
+        }
       />
 
       {people.length === 0 ? (
         <Card className="mt-8 flex flex-col items-center gap-3 p-16 text-center">
           <Users size={22} className="text-ink-muted" />
-          <p className="text-xs text-ink-muted">
-            No faces found yet. Run a scan from Settings to detect faces in your library.
-          </p>
+          <p className="text-xs text-ink-muted">No faces found yet.</p>
+          <Button
+            variant="secondary"
+            icon={scanning || scanJob ? <Loader2 size={14} className="animate-spin" /> : <ScanFace size={14} />}
+            disabled={scanning || !!scanJob}
+            onClick={startScan}
+          >
+            {scanJob ? `Scanning… ${scanJob.current}/${scanJob.total}` : "Scan library for faces"}
+          </Button>
         </Card>
       ) : (
         <div className="mt-7 grid grid-cols-6 gap-5 sm:grid-cols-8">
