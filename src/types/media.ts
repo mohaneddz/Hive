@@ -136,7 +136,7 @@ export interface CropRect {
 }
 
 /**
- * Applied in a fixed order â€” rotate â†’ flip â†’ crop â†’ colour â€” matching
+ * Applied in a fixed order — rotate → flip → crop → colour — matching
  * `apply_ops` in Rust, so the live preview and the written file agree.
  */
 export interface EditOps {
@@ -319,7 +319,9 @@ export interface AiStatus {
   faceModelLoaded: boolean;
   facesIndexedCount: number;
   peopleCount: number;
-  /** Whether each optional model is on disk â€” drives the Download button. */
+  llmModelsReady: boolean;
+  llmModelLoaded: boolean;
+  /** Whether each optional model is on disk — drives the Download button. */
   nsfwModelsReady: boolean;
   captionModelsReady: boolean;
 }
@@ -327,6 +329,11 @@ export interface AiStatus {
 export interface DuplicateGroup {
   groupId: string;
   items: MediaItem[];
+}
+
+export interface ChatResponse {
+  answer: string;
+  mediaIds: string[];
 }
 
 export interface PersonSummary {
