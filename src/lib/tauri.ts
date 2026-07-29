@@ -8,6 +8,7 @@ import type {
   BestPhotoResult,
   BlurReport,
   CacheReport,
+  ChatResponse,
   ConvertFormat,
   DuplicateGroup,
   EditOps,
@@ -206,7 +207,7 @@ export function updateMediaMetadata(
 /* ------------------------------------------------------------------ batch -- */
 
 /**
- * Pattern tokens: `{name}` original stem Â· `{n}` sequence number Â· `{date}`
+ * Pattern tokens: `{name}` original stem · `{n}` sequence number · `{date}`
  * capture day. The extension is always carried over, never part of the pattern.
  */
 export function previewBatchRename(
@@ -352,7 +353,7 @@ export function setGeocodingEnabled(enabled: boolean): Promise<void> {
   return invoke("set_geocoding_enabled", { enabled });
 }
 
-/** Everything already looked up â€” reads the cache, never the network. */
+/** Everything already looked up — reads the cache, never the network. */
 export function getCachedPlaceNames(): Promise<[number, number, string][]> {
   return invoke("get_cached_place_names");
 }
@@ -511,6 +512,14 @@ export async function readFaceCropUrl(faceId: string): Promise<string> {
   const buffer = await invoke<ArrayBuffer>("read_face_crop_bytes", { faceId });
   const blob = new Blob([buffer]);
   return URL.createObjectURL(blob);
+}
+
+export function downloadLlmModel(): Promise<void> {
+  return invoke("download_llm_model");
+}
+
+export function galleryChat(message: string): Promise<ChatResponse> {
+  return invoke("gallery_chat", { message });
 }
 
 /* ---------------------------------------------------------------- tagging -- */
