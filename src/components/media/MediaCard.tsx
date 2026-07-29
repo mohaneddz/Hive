@@ -7,6 +7,7 @@ import { useNsfwPolicy } from "@/hooks/useNsfwPolicy";
 import { setFavorite } from "@/lib/tauri";
 import type { MediaItem } from "@/types/media";
 import { cn } from "@/utils/cn";
+import { formatDuration } from "@/utils/format";
 
 export function MediaCard({
   item,
@@ -85,8 +86,9 @@ export function MediaCard({
         </div>
       )}
       {item.mediaType === "video" && (
-        <span className="absolute left-3 top-3 grid size-7 place-items-center rounded-full bg-black/55 text-white">
-          <VideoIcon size={13} />
+        <span className="absolute bottom-2.5 left-2.5 flex items-center gap-1 text-[11px] font-bold text-white opacity-100 transition [text-shadow:0_1px_3px_rgb(0_0_0/.7)] group-hover:opacity-0">
+          <VideoIcon size={12} />
+          {item.durationMs ? formatDuration(item.durationMs) : null}
         </span>
       )}
       <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/55 to-transparent opacity-0 transition group-hover:opacity-100" />
