@@ -64,7 +64,9 @@ export function GalleryPage() {
   }, [folderId, filters.mediaType, filters.favoritesOnly, sort]);
 
   useEffect(() => {
-    void getTimeline("year").then(setYearBuckets);
+    // The scrubber jumps to a `data-year` section, which "Unspecified" has no
+    // equivalent of — Gallery's own grouping calls those items "Unknown date".
+    void getTimeline("year").then((buckets) => setYearBuckets(buckets.filter((b) => /^\d+$/.test(b.key))));
   }, []);
 
   const chooseFolder = async () => {
