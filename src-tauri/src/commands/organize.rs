@@ -76,8 +76,12 @@ fn parse_date(raw: &str) -> Option<DateTime<Utc>> {
         })
 }
 
+/// The bucket key `list_media_in_bucket` recognizes for photos with no usable date at all.
+pub const UNSPECIFIED_BUCKET_KEY: &str = "unspecified";
+
 /// Photo counts per year, month or day, newest first — the raw material for a
-/// timeline view.
+/// timeline view. Undated photos are never grouped into `strftime` buckets, so
+/// they come back as one trailing "unspecified" bucket instead of vanishing.
 #[tauri::command]
 pub fn get_timeline(
     state: State<'_, AppState>,
@@ -113,7 +117,7 @@ pub fn get_timeline(
         .filter_map(|row| row.ok())
         .collect();
 
-    let mut buckets = Vec::with_capacity(rows.len());
+    let mut buckets = Vec::with_capacity(rows.len() + 1);
     for (key, count, start, end) in rows {
         // One cover query per bucket; there are only ever a handful on screen.
         let cover_media_id: Option<String> = conn
@@ -138,10 +142,42 @@ pub fn get_timeline(
         });
     }
 
+    let undated_count: i64 = conn
+        .query_row(
+            &format!("SELECT COUNT(*) FROM media_items WHERE {live} AND {EFFECTIVE_DATE} IS NULL"),
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    if undated_count > 0 {
+        let cover_media_id: Option<String> = conn
+            .query_row(
+                &format!(
+                    "SELECT id FROM media_items WHERE {live} AND {EFFECTIVE_DATE} IS NULL
+                     ORDER BY indexed_at DESC LIMIT 1"
+                ),
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+
+        buckets.push(TimelineBucket {
+            key: UNSPECIFIED_BUCKET_KEY.to_string(),
+            label: "Unspecified".to_string(),
+            count: undated_count,
+            cover_media_id,
+            start: String::new(),
+            end: String::new(),
+        });
+    }
+
     Ok(buckets)
 }
 
-/// Every photo in one timeline bucket, newest first.
+/// Every photo in one timeline bucket, newest first. The synthetic
+/// `UNSPECIFIED_BUCKET_KEY` bucket has no date to sort by, so it reads back by
+/// index time instead.
 #[tauri::command]
 pub fn list_media_in_bucket(
     state: State<'_, AppState>,
@@ -150,25 +186,42 @@ pub fn list_media_in_bucket(
     limit: i64,
 ) -> Result<Vec<MediaItem>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let format = match granularity.as_deref() {
-        Some("day") => "%Y-%m-%d",
-        Some("month") => "%Y-%m",
-        _ => "%Y",
-    };
-
     let live = scope_predicate(None);
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT id FROM media_items
-             WHERE {live} AND strftime('{format}', {EFFECTIVE_DATE}) = ?1
-             ORDER BY {EFFECTIVE_DATE} DESC LIMIT ?2"
-        ))
-        .map_err(|e| e.to_string())?;
-    let ids: Vec<String> = stmt
-        .query_map(params![key, limit], |r| r.get(0))
-        .map_err(|e| e.to_string())?
-        .filter_map(|id| id.ok())
-        .collect();
+
+    let ids: Vec<String> = if key == UNSPECIFIED_BUCKET_KEY {
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT id FROM media_items
+                 WHERE {live} AND {EFFECTIVE_DATE} IS NULL
+                 ORDER BY indexed_at DESC LIMIT ?1"
+            ))
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![limit], |r| r.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|id| id.ok())
+            .collect();
+        rows
+    } else {
+        let format = match granularity.as_deref() {
+            Some("day") => "%Y-%m-%d",
+            Some("month") => "%Y-%m",
+            _ => "%Y",
+        };
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT id FROM media_items
+                 WHERE {live} AND strftime('{format}', {EFFECTIVE_DATE}) = ?1
+                 ORDER BY {EFFECTIVE_DATE} DESC LIMIT ?2"
+            ))
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![key, limit], |r| r.get(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|id| id.ok())
+            .collect();
+        rows
+    };
 
     ids.iter()
         .map(|id| row_to_media_item(&conn, id))
