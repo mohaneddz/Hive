@@ -18,6 +18,9 @@ import type { EventGroup, MediaItem, TimelineBucket, TimelineGranularity } from 
 import { cn } from "@/utils/cn";
 import { formatCount, formatDate } from "@/utils/format";
 
+/** The key `get_timeline` gives the trailing bucket of photos with no usable capture date. */
+const UNSPECIFIED_BUCKET_KEY = "unspecified";
+
 const GRANULARITIES: { value: TimelineGranularity; label: string }[] = [
   { value: "year", label: "Year" },
   { value: "month", label: "Month" },
@@ -38,6 +41,7 @@ export function TimelineView() {
   const [buckets, setBuckets] = useState<TimelineBucket[] | null>(null);
   const [open, setOpen] = useState<TimelineBucket | null>(null);
   const [items, setItems] = useState<MediaItem[]>([]);
+  const [showUnspecified, setShowUnspecified] = useState(true);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -50,6 +54,9 @@ export function TimelineView() {
     setOpen(bucket);
     setItems(await listMediaInBucket(granularity, bucket.key));
   };
+
+  const unspecifiedCount = buckets?.find((b) => b.key === UNSPECIFIED_BUCKET_KEY)?.count ?? 0;
+  const visibleBuckets = buckets?.filter((b) => showUnspecified || b.key !== UNSPECIFIED_BUCKET_KEY);
 
   if (open) {
     return (
@@ -69,19 +76,39 @@ export function TimelineView() {
 
   return (
     <div>
-      <div className="flex items-center gap-1 rounded-xl border border-ink/[.12] bg-panel p-1">
-        {GRANULARITIES.map((entry) => (
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 rounded-xl border border-ink/[.12] bg-panel p-1">
+          {GRANULARITIES.map((entry) => (
+            <button
+              key={entry.value}
+              onClick={() => setGranularity(entry.value)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-bold text-ink-muted transition",
+                granularity === entry.value && "bg-cream text-honey-deep",
+              )}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+
+        {unspecifiedCount > 0 && (
           <button
-            key={entry.value}
-            onClick={() => setGranularity(entry.value)}
+            onClick={() => setShowUnspecified((v) => !v)}
             className={cn(
-              "rounded-lg px-3 py-1.5 text-xs font-bold text-ink-muted transition",
-              granularity === entry.value && "bg-cream text-honey-deep",
+              "inline-flex h-9 items-center gap-2 rounded-xl border border-ink/[.12] bg-panel px-3 text-xs font-bold text-ink-muted transition",
+              showUnspecified && "border-honey/50 bg-honey/12 text-honey-deep",
             )}
           >
-            {entry.label}
+            <span
+              className={cn(
+                "grid size-4 place-items-center rounded-full border-2",
+                showUnspecified ? "border-honey bg-honey" : "border-ink/20",
+              )}
+            />
+            Show undated ({formatCount(unspecifiedCount, "photo")})
           </button>
-        ))}
+        )}
       </div>
 
       {buckets === null && <div className="mt-10 text-center text-sm text-ink-muted">Loading…</div>}
@@ -94,9 +121,9 @@ export function TimelineView() {
         />
       )}
 
-      {buckets && buckets.length > 0 && (
+      {visibleBuckets && visibleBuckets.length > 0 && (
         <div className="mt-6 grid grid-cols-4 gap-4">
-          {buckets.map((bucket) => (
+          {visibleBuckets.map((bucket) => (
             <button
               key={bucket.key}
               onClick={() => openBucket(bucket)}
@@ -121,7 +148,7 @@ export function TimelineView() {
               <div className="p-4">
                 <p className="text-xs font-extrabold text-ink">{formatCount(bucket.count, "photo")}</p>
                 <p className="mt-0.5 truncate text-[11px] text-ink-muted">
-                  {spanLabel(bucket.start, bucket.end)}
+                  {bucket.key === UNSPECIFIED_BUCKET_KEY ? "No capture date" : spanLabel(bucket.start, bucket.end)}
                 </p>
               </div>
             </button>
