@@ -24,6 +24,7 @@ import {
   downloadOcrModels,
   applyCacheLimit,
   clearThumbnailCache,
+  downloadLlmModel,
   getCacheLimitMb,
   getGeocodingEnabled,
   getNsfwPolicy,
@@ -68,6 +69,7 @@ export function GallerySettingsPage() {
   const [ocrBackfilling, setOcrBackfilling] = useState(false);
   const [faceDownloading, setFaceDownloading] = useState(false);
   const [faceBackfilling, setFaceBackfilling] = useState(false);
+  const [llmDownloading, setLlmDownloading] = useState(false);
   const [thumbsRebuilding, setThumbsRebuilding] = useState(false);
   const [storage, setStorage] = useState<StorageStats | null>(null);
   const [cacheBusy, setCacheBusy] = useState(false);
@@ -112,7 +114,7 @@ export function GallerySettingsPage() {
 
   const clearCache = async () => {
     const confirmed = await confirm(
-      "Delete every generated thumbnail? They are rebuilt on the next scan â€” this only costs time, never photos.",
+      "Delete every generated thumbnail? They are rebuilt on the next scan — this only costs time, never photos.",
       { title: "Clear thumbnail cache", kind: "warning" },
     );
     if (!confirmed) return;
@@ -145,6 +147,7 @@ export function GallerySettingsPage() {
   const nsfwBackfillJob = jobs.find((j) => j.kind === "nsfw_backfill" && j.status === "running");
   const captionBackfillJob = jobs.find((j) => j.kind === "caption_backfill" && j.status === "running");
   const thumbsJob = jobs.find((j) => j.kind === "thumbnail_backfill" && j.status === "running");
+  const llmDownloadJob = jobs.find((j) => j.kind === "download_llm_model" && j.status === "running");
 
   const startDownload = async () => {
     setDownloading(true);
@@ -209,6 +212,18 @@ export function GallerySettingsPage() {
       refreshAiStatus();
     } finally {
       setFaceBackfilling(false);
+    }
+  };
+
+  const startLlmDownload = async () => {
+    setLlmDownloading(true);
+    try {
+      await downloadLlmModel();
+      refreshAiStatus();
+    } catch (cause) {
+      setFailure(String(cause));
+    } finally {
+      setLlmDownloading(false);
     }
   };
 
@@ -351,7 +366,7 @@ export function GallerySettingsPage() {
                   <span className="block truncate text-xs font-semibold text-ink">{folder.path}</span>
                   {!folder.isWatched && (
                     <span className="block text-[10px] font-bold text-ink-muted">
-                      Watching paused â€” new files are not picked up
+                      Watching paused — new files are not picked up
                     </span>
                   )}
                 </span>
@@ -402,7 +417,7 @@ export function GallerySettingsPage() {
                 onClick={startThumbnailRebuild}
               >
                 {thumbsJob
-                  ? `Rebuildingâ€¦ ${thumbsJob.current}/${thumbsJob.total}`
+                  ? `Rebuilding… ${thumbsJob.current}/${thumbsJob.total}`
                   : "Rebuild missing thumbnails"}
               </Button>
             )}
@@ -417,7 +432,7 @@ export function GallerySettingsPage() {
             <div>
               <h2 className="text-base font-extrabold text-ink">AI features</h2>
               <p className="mt-0.5 text-xs text-ink-muted">
-                Semantic search runs a local CLIP model â€” everything happens on this device.
+                Semantic search runs a local CLIP model — everything happens on this device.
               </p>
             </div>
           </div>
@@ -428,7 +443,7 @@ export function GallerySettingsPage() {
                 <p className="text-xs font-bold text-ink">Local AI model</p>
                 <p className="mt-0.5 text-[11px] text-ink-muted">
                   {downloadJob
-                    ? `Downloadingâ€¦ ${formatBytes(downloadJob.current)} / ${formatBytes(downloadJob.total)}`
+                    ? `Downloading… ${formatBytes(downloadJob.current)} / ${formatBytes(downloadJob.total)}`
                     : "~150 MB, one-time download from Hugging Face."}
                 </p>
               </div>
@@ -438,7 +453,7 @@ export function GallerySettingsPage() {
                 onClick={startDownload}
                 className="shrink-0"
               >
-                {downloadJob ? "Downloadingâ€¦" : "Download"}
+                {downloadJob ? "Downloading…" : "Download"}
               </Button>
             </div>
           ) : (
@@ -447,7 +462,7 @@ export function GallerySettingsPage() {
                 <p className="text-xs font-bold text-ink">Semantic search is ready</p>
                 <p className="mt-0.5 text-[11px] text-ink-muted">
                   {backfillJob
-                    ? `Embedding photosâ€¦ ${backfillJob.current}/${backfillJob.total}`
+                    ? `Embedding photos… ${backfillJob.current}/${backfillJob.total}`
                     : `${aiStatus.embeddedCount.toLocaleString()} of ${aiStatus.eligibleCount.toLocaleString()} photos embedded.`}
                 </p>
               </div>
@@ -458,7 +473,7 @@ export function GallerySettingsPage() {
                   onClick={startBackfill}
                   className="shrink-0"
                 >
-                  {backfillJob ? "Workingâ€¦" : "Embed remaining"}
+                  {backfillJob ? "Working…" : "Embed remaining"}
                 </Button>
               )}
             </div>
@@ -472,7 +487,7 @@ export function GallerySettingsPage() {
                   <p className="text-xs font-bold text-ink">Text in photos (OCR)</p>
                   <p className="mt-0.5 text-[11px] text-ink-muted">
                     {ocrDownloadJob
-                      ? `Downloadingâ€¦ ${formatBytes(ocrDownloadJob.current)} / ${formatBytes(ocrDownloadJob.total)}`
+                      ? `Downloading… ${formatBytes(ocrDownloadJob.current)} / ${formatBytes(ocrDownloadJob.total)}`
                       : "~96 MB, lets search find text inside photos."}
                   </p>
                 </div>
@@ -484,7 +499,7 @@ export function GallerySettingsPage() {
                 onClick={startOcrDownload}
                 className="shrink-0"
               >
-                {ocrDownloadJob ? "Downloadingâ€¦" : "Download"}
+                {ocrDownloadJob ? "Downloading…" : "Download"}
               </Button>
             </div>
           ) : (
@@ -495,7 +510,7 @@ export function GallerySettingsPage() {
                   <p className="text-xs font-bold text-ink">Text in photos is searchable</p>
                   <p className="mt-0.5 text-[11px] text-ink-muted">
                     {ocrBackfillJob
-                      ? `Reading photosâ€¦ ${ocrBackfillJob.current}/${ocrBackfillJob.total}`
+                      ? `Reading photos… ${ocrBackfillJob.current}/${ocrBackfillJob.total}`
                       : `${aiStatus.ocrIndexedCount.toLocaleString()} of ${aiStatus.eligibleCount.toLocaleString()} photos scanned for text.`}
                   </p>
                 </div>
@@ -507,7 +522,7 @@ export function GallerySettingsPage() {
                   onClick={startOcrBackfill}
                   className="shrink-0"
                 >
-                  {ocrBackfillJob ? "Workingâ€¦" : "Scan remaining"}
+                  {ocrBackfillJob ? "Working…" : "Scan remaining"}
                 </Button>
               )}
             </div>
@@ -521,7 +536,7 @@ export function GallerySettingsPage() {
                   <p className="text-xs font-bold text-ink">People (face recognition)</p>
                   <p className="mt-0.5 text-[11px] text-ink-muted">
                     {faceDownloadJob
-                      ? `Downloadingâ€¦ ${formatBytes(faceDownloadJob.current)} / ${formatBytes(faceDownloadJob.total)}`
+                      ? `Downloading… ${formatBytes(faceDownloadJob.current)} / ${formatBytes(faceDownloadJob.total)}`
                       : "~67 MB, groups photos by the people in them."}
                   </p>
                 </div>
@@ -533,7 +548,7 @@ export function GallerySettingsPage() {
                 onClick={startFaceDownload}
                 className="shrink-0"
               >
-                {faceDownloadJob ? "Downloadingâ€¦" : "Download"}
+                {faceDownloadJob ? "Downloading…" : "Download"}
               </Button>
             </div>
           ) : (
@@ -544,7 +559,7 @@ export function GallerySettingsPage() {
                   <p className="text-xs font-bold text-ink">People</p>
                   <p className="mt-0.5 text-[11px] text-ink-muted">
                     {faceBackfillJob
-                      ? `Scanning for facesâ€¦ ${faceBackfillJob.current}/${faceBackfillJob.total}`
+                      ? `Scanning for faces… ${faceBackfillJob.current}/${faceBackfillJob.total}`
                       : `${aiStatus.peopleCount.toLocaleString()} people found in ${aiStatus.facesIndexedCount.toLocaleString()} of ${aiStatus.eligibleCount.toLocaleString()} photos.`}
                   </p>
                 </div>
@@ -556,13 +571,45 @@ export function GallerySettingsPage() {
                   onClick={startFaceBackfill}
                   className="shrink-0"
                 >
-                  {faceBackfillJob ? "Workingâ€¦" : "Scan remaining"}
+                  {faceBackfillJob ? "Working…" : "Scan remaining"}
                 </Button>
               )}
             </div>
           )}
 
-          {/* Auto-tagging Card */}
+          {!aiStatus?.llmModelsReady ? (
+            <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+              <div className="min-w-0 flex items-center gap-3">
+                <Sparkles size={16} className="shrink-0 text-honey-deep" />
+                <div>
+                  <p className="text-xs font-bold text-ink">Gallery chat</p>
+                  <p className="mt-0.5 text-[11px] text-ink-muted">
+                    {llmDownloadJob
+                      ? `Downloading… ${formatBytes(llmDownloadJob.current)} / ${formatBytes(llmDownloadJob.total)}`
+                      : "~1.1 GB, a small local model for asking questions about your photos."}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                icon={<Download size={14} />}
+                disabled={llmDownloading || !!llmDownloadJob}
+                onClick={startLlmDownload}
+                className="shrink-0"
+              >
+                {llmDownloadJob ? "Downloading…" : "Download"}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-3 flex items-center gap-3 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+              <Sparkles size={16} className="shrink-0 text-honey-deep" />
+              <div>
+                <p className="text-xs font-bold text-ink">Gallery chat is ready</p>
+                <p className="mt-0.5 text-[11px] text-ink-muted">Ask questions about your library from the Search page.</p>
+              </div>
+            </div>
+          )}
+
           <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
             <div className="min-w-0 flex items-center gap-3">
               <Tag size={16} className="shrink-0 text-honey-deep" />
@@ -570,7 +617,7 @@ export function GallerySettingsPage() {
                 <p className="text-xs font-bold text-ink">Auto-Tagging (CLIP)</p>
                 <p className="mt-0.5 text-[11px] text-ink-muted">
                   {tagBackfillJob
-                    ? `Tagging photosâ€¦ ${tagBackfillJob.current}/${tagBackfillJob.total}`
+                    ? `Tagging photos… ${tagBackfillJob.current}/${tagBackfillJob.total}`
                     : "Automatically tags photos with categories (nature, dogs, food, etc.)."}
                 </p>
               </div>
@@ -581,11 +628,10 @@ export function GallerySettingsPage() {
               onClick={startTagBackfill}
               className="shrink-0"
             >
-              {tagBackfillJob ? "Taggingâ€¦" : "Run Auto-Tagging"}
+              {tagBackfillJob ? "Tagging…" : "Run Auto-Tagging"}
             </Button>
           </div>
 
-          {/* Aesthetic Ranking Card */}
           <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
             <div className="min-w-0 flex items-center gap-3">
               <Star size={16} className="shrink-0 text-honey-deep" />
@@ -604,12 +650,11 @@ export function GallerySettingsPage() {
                 disabled={aestheticBackfilling || !!aestheticBackfillJob}
                 onClick={startAestheticBackfill}
               >
-                {aestheticBackfillJob ? "Scoringâ€¦" : "Score photos"}
+                {aestheticBackfillJob ? "Scoring…" : "Score photos"}
               </Button>
             </div>
           </div>
 
-          {/* Sensitive Content Detection Card */}
           <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
             <div className="min-w-0 flex items-center gap-3">
               <Eye size={16} className="shrink-0 text-honey-deep" />
@@ -617,7 +662,7 @@ export function GallerySettingsPage() {
                 <p className="text-xs font-bold text-ink">Sensitive Content Detection (NSFW)</p>
                 <p className="mt-0.5 text-[11px] text-ink-muted">
                   {nsfwBackfillJob
-                    ? `Scanning sensitive contentâ€¦ ${nsfwBackfillJob.current}/${nsfwBackfillJob.total}`
+                    ? `Scanning sensitive content… ${nsfwBackfillJob.current}/${nsfwBackfillJob.total}`
                     : "~10 MB model, automatically flags and hides sensitive images."}
                 </p>
               </div>
@@ -638,12 +683,11 @@ export function GallerySettingsPage() {
                 disabled={nsfwBackfilling || !!nsfwBackfillJob}
                 onClick={startNsfwBackfill}
               >
-                {nsfwBackfillJob ? "Scanningâ€¦" : "Scan library"}
+                {nsfwBackfillJob ? "Scanning…" : "Scan library"}
               </Button>
             </div>
           </div>
 
-          {/* Image Captions Card */}
           <div className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
             <div className="min-w-0 flex items-center gap-3">
               <FileText size={16} className="shrink-0 text-honey-deep" />
@@ -651,7 +695,7 @@ export function GallerySettingsPage() {
                 <p className="text-xs font-bold text-ink">Image Captions (ViT-GPT2)</p>
                 <p className="mt-0.5 text-[11px] text-ink-muted">
                   {captionBackfillJob
-                    ? `Generating captionsâ€¦ ${captionBackfillJob.current}/${captionBackfillJob.total}`
+                    ? `Generating captions… ${captionBackfillJob.current}/${captionBackfillJob.total}`
                     : "Generates natural text descriptions of your photos."}
                 </p>
               </div>
@@ -672,7 +716,7 @@ export function GallerySettingsPage() {
                 disabled={captionBackfilling || !!captionBackfillJob}
                 onClick={startCaptionBackfill}
               >
-                {captionBackfillJob ? "Generatingâ€¦" : "Generate captions"}
+                {captionBackfillJob ? "Generating…" : "Generate captions"}
               </Button>
             </div>
           </div>
@@ -730,17 +774,17 @@ export function GallerySettingsPage() {
             {[
               {
                 label: "Originals",
-                value: storage ? formatBytes(storage.originalBytes) : "â€”",
+                value: storage ? formatBytes(storage.originalBytes) : "—",
                 hint: "Your own files",
               },
               {
                 label: "Thumbnails",
-                value: storage ? formatBytes(storage.thumbnailBytes) : "â€”",
+                value: storage ? formatBytes(storage.thumbnailBytes) : "—",
                 hint: "Created by Hive",
               },
               {
                 label: "Database",
-                value: storage ? formatBytes(storage.databaseBytes) : "â€”",
+                value: storage ? formatBytes(storage.databaseBytes) : "—",
                 hint: "Index and metadata",
               },
             ].map((entry) => (
@@ -768,7 +812,7 @@ export function GallerySettingsPage() {
             <p className="text-xs font-extrabold text-ink">Cache ceiling</p>
             <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-ink-muted">
               Thumbnails otherwise grow for as long as you add photos. With a ceiling set, Hive
-              drops the ones you have not looked at in a while until the cache fits â€” they are
+              drops the ones you have not looked at in a while until the cache fits — they are
               rebuilt on demand, so nothing is lost but time.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -810,11 +854,11 @@ export function GallerySettingsPage() {
           </div>
           <div className="mt-5 flex flex-wrap gap-x-8 gap-y-3 text-xs">
             {[
-              ["Items indexed", stats ? formatCount(stats.totalItems, "item") : "â€”"],
-              ["Photos", stats ? stats.imageCount.toLocaleString() : "â€”"],
-              ["Videos", stats ? stats.videoCount.toLocaleString() : "â€”"],
-              ["Albums", stats ? stats.albumCount.toLocaleString() : "â€”"],
-              ["Geotagged", stats ? stats.placeCount.toLocaleString() : "â€”"],
+              ["Items indexed", stats ? formatCount(stats.totalItems, "item") : "—"],
+              ["Photos", stats ? stats.imageCount.toLocaleString() : "—"],
+              ["Videos", stats ? stats.videoCount.toLocaleString() : "—"],
+              ["Albums", stats ? stats.albumCount.toLocaleString() : "—"],
+              ["Geotagged", stats ? stats.placeCount.toLocaleString() : "—"],
               ["Watched folders", formatCount(folders.length, "folder")],
             ].map(([label, value]) => (
               <div key={label}>
@@ -853,7 +897,7 @@ export function GallerySettingsPage() {
           <p className="mt-5 text-xs leading-relaxed text-ink-muted">
             Hive is local-first. Your photos are read from the folders you choose and never copied
             anywhere else. The index, thumbnails, AI models and preferences all live in your own
-            user profile, and recognition runs on this machine â€” no image is ever uploaded.
+            user profile, and recognition runs on this machine — no image is ever uploaded.
           </p>
 
           <div className="mt-5 rounded-2xl border border-ink/[.08] bg-canvas p-4">
@@ -861,9 +905,9 @@ export function GallerySettingsPage() {
               <div>
                 <p className="text-xs font-extrabold text-ink">Look up place names</p>
                 <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-ink-muted">
-                  Turns coordinates into names like â€œLyon, Franceâ€ on the Places page. There is no
+                  Turns coordinates into names like “Lyon, France” on the Places page. There is no
                   offline way to do this, so lookups go to OpenStreetMap. What leaves your machine
-                  is a pair of coordinates rounded to about a kilometre â€” no photo, no filename, no
+                  is a pair of coordinates rounded to about a kilometre — no photo, no filename, no
                   identifier. Every answer is cached, so a place is looked up once and never again.
                 </p>
               </div>
@@ -889,7 +933,7 @@ export function GallerySettingsPage() {
               </button>
             </div>
             <p className="mt-3 text-[10px] font-bold text-ink-muted">
-              {geocoding ? "On â€” names are fetched when you ask for them" : "Off â€” coordinates only"}
+              {geocoding ? "On — names are fetched when you ask for them" : "Off — coordinates only"}
             </p>
           </div>
 
@@ -900,7 +944,7 @@ export function GallerySettingsPage() {
                 <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-ink-muted">
                   Photos the model scores above the threshold are always covered in the grid, and one
                   click reveals them. Turning this on also moves them out of the library into Hidden.
-                  That is not a display choice â€” a wrongly flagged photo disappears from view, and no
+                  That is not a display choice — a wrongly flagged photo disappears from view, and no
                   classifier is right often enough for that to happen unasked, so it is off by default.
                 </p>
               </div>
@@ -935,7 +979,7 @@ export function GallerySettingsPage() {
                       : "border-ink/[.08] bg-panel text-ink-soft hover:border-honey/40",
                   )}
                 >
-                  {value === 0.5 ? "50% â€” strict" : value === 0.7 ? "70% â€” balanced" : "85% â€” lenient"}
+                  {value === 0.5 ? "50% — strict" : value === 0.7 ? "70% — balanced" : "85% — lenient"}
                 </button>
               ))}
             </div>
