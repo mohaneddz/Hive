@@ -54,6 +54,19 @@ pub const FACE_FILES: &[ModelFile] = &[
     },
 ];
 
+/// Qwen2.5-1.5B-Instruct, Q4_K_M GGUF quantization — small enough for CPU chat replies in a
+/// few seconds, still coherent enough to synthesize an answer from retrieved photo metadata.
+pub const LLM_FILES: &[ModelFile] = &[
+    ModelFile {
+        url: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        filename: "model.gguf",
+    },
+    ModelFile {
+        url: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/resolve/main/tokenizer.json",
+        filename: "tokenizer.json",
+    },
+];
+
 /// ViT classifier for sensitive content, fine-tuned on a safe/NSFW split.
 /// The quantized export is a quarter of the size for the same verdict.
 pub const NSFW_FILES: &[ModelFile] = &[
@@ -95,6 +108,10 @@ pub fn face_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("models").join("faces")
 }
 
+pub fn llm_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("models").join("llm")
+}
+
 pub fn nsfw_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("models").join("nsfw")
 }
@@ -117,6 +134,10 @@ pub fn ocr_models_ready(app_data_dir: &Path) -> bool {
 
 pub fn face_models_ready(app_data_dir: &Path) -> bool {
     models_ready(&face_dir(app_data_dir), FACE_FILES)
+}
+
+pub fn llm_models_ready(app_data_dir: &Path) -> bool {
+    models_ready(&llm_dir(app_data_dir), LLM_FILES)
 }
 
 pub fn nsfw_models_ready(app_data_dir: &Path) -> bool {
@@ -191,6 +212,10 @@ pub async fn ensure_face_models(app_data_dir: &Path, on_progress: impl FnMut(u64
     ensure_models(&face_dir(app_data_dir), FACE_FILES, on_progress).await
 }
 
+pub async fn ensure_llm_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
+    ensure_models(&llm_dir(app_data_dir), LLM_FILES, on_progress).await
+}
+
 pub async fn ensure_nsfw_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
     ensure_models(&nsfw_dir(app_data_dir), NSFW_FILES, on_progress).await
 }
@@ -198,4 +223,3 @@ pub async fn ensure_nsfw_models(app_data_dir: &Path, on_progress: impl FnMut(u64
 pub async fn ensure_caption_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
     ensure_models(&caption_dir(app_data_dir), CAPTION_FILES, on_progress).await
 }
-
