@@ -1,4 +1,4 @@
-﻿import { AlertTriangle, Database, Download, Eye, FileText, FolderOpen, HardDrive, Image, ImageOff, Keyboard, Monitor, Moon, Palette, Pause, Play, Plus, RefreshCw, ScanText, Shield, Sparkles, Star, Sun, Tag, Trash2, Users } from "lucide-react";
+﻿import { AlertTriangle, Check, Cpu, Database, Download, Eraser, Eye, FileText, FolderOpen, HardDrive, Image, ImageOff, Keyboard, Monitor, Moon, MousePointerClick, Palette, Pause, Play, Plus, RefreshCw, ScanText, Scissors, Shield, Sparkles, Star, Sun, Tag, Trash2, Users, Wand2, Zap } from "lucide-react";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useState } from "react";
 
@@ -17,6 +17,7 @@ import {
   backfillOcr,
   backfillTags,
   backfillThumbnails,
+  downloadAiEditorModel,
   downloadAiModels,
   downloadCaptionModel,
   downloadFaceModels,
@@ -24,25 +25,86 @@ import {
   downloadOcrModels,
   applyCacheLimit,
   clearThumbnailCache,
+  getAiEditorStatus,
   getCacheLimitMb,
   getGeocodingEnabled,
+  getGpuStatus,
   getNsfwPolicy,
   getStorageStats,
   isTauri,
   setCacheLimitMb,
   setFolderWatched,
   setGeocodingEnabled,
+  setGpuEnabled,
   setNsfwPolicy as setNsfwPolicyCommand,
 } from "@/lib/tauri";
 import { ShortcutEditor } from "@/components/settings/ShortcutEditor";
 import { useDownloadProgress } from "@/hooks/useDownloadProgress";
 import { useLibraryStats } from "@/hooks/useLibraryStats";
 import { refreshNsfwPolicy } from "@/hooks/useNsfwPolicy";
-import type { NsfwPolicy, StorageStats } from "@/types/media";
+import type {
+  AiEditorStatus,
+  AiEditorTool,
+  GpuStatus,
+  NsfwPolicy,
+  StorageStats,
+} from "@/types/media";
 import { formatCount } from "@/utils/format";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import { formatBytes } from "@/utils/format";
 import { cn } from "@/utils/cn";
+
+/** The editor's four tools, in the order they are worth downloading. */
+const EDITOR_TOOLS: {
+  tool: AiEditorTool;
+  label: string;
+  model: string;
+  size: string;
+  icon: typeof Zap;
+  blurb: string;
+}[] = [
+  {
+    tool: "upscale",
+    label: "Enlarge Ã—4",
+    model: "Real-ESRGAN",
+    size: "4.9 MB",
+    icon: Zap,
+    blurb: "Invents detail instead of stretching pixels. Best on small or old photos.",
+  },
+  {
+    tool: "segment",
+    label: "Click to select",
+    model: "SlimSAM",
+    size: "14 MB",
+    icon: MousePointerClick,
+    blurb: "Click anything in a photo to select it. Needed before erasing.",
+  },
+  {
+    tool: "cutout",
+    label: "Remove background",
+    model: "MODNet + ISNet",
+    size: "185 MB",
+    icon: Scissors,
+    blurb: "Two models: the portrait one keeps hair as hair, the other handles objects.",
+  },
+  {
+    tool: "inpaint",
+    label: "Erase an object",
+    model: "LaMa",
+    size: "208 MB",
+    icon: Eraser,
+    blurb: "Removes what you selected and invents the background behind it.",
+  },
+  {
+    tool: "generate",
+    label: "Paint from a description",
+    model: "Stable Diffusion 1.5",
+    size: "2.1 GB",
+    icon: Wand2,
+    blurb:
+      "Select an area, describe what should be there, and it is painted in. By far the largest and slowest of the tools â€” about a minute a try on the graphics card.",
+  },
+];
 
 /** 0 keeps the cache unbounded, which is how Hive behaved before this existed. */
 const CACHE_LIMITS = [
@@ -73,6 +135,9 @@ export function GallerySettingsPage() {
   const [cacheBusy, setCacheBusy] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
   const [nsfwPolicy, setNsfwPolicy] = useState<NsfwPolicy>({ threshold: 0.7, autoHide: false });
+  const [aiEditor, setAiEditor] = useState<AiEditorStatus | null>(null);
+  const [editorDownloading, setEditorDownloading] = useState<AiEditorTool | null>(null);
+  const [gpu, setGpu] = useState<GpuStatus | null>(null);
   const [cacheLimit, setCacheLimit] = useState(0);
   /// Model downloads create no job, so a failure has nowhere else to surface.
   const [failure, setFailure] = useState<string | null>(null);
@@ -80,6 +145,7 @@ export function GallerySettingsPage() {
   // Without these, a 230 MB download is indistinguishable from a dead button.
   const nsfwProgress = useDownloadProgress("nsfw:download:progress");
   const captionProgress = useDownloadProgress("caption:download:progress");
+  const editorProgress = useDownloadProgress("ai-editor:download:progress");
   const { stats } = useLibraryStats();
 
   useEffect(() => {
@@ -87,7 +153,35 @@ export function GallerySettingsPage() {
     void getGeocodingEnabled().then(setGeocoding);
     void getCacheLimitMb().then(setCacheLimit);
     void getNsfwPolicy().then(setNsfwPolicy);
+    void getAiEditorStatus().then(setAiEditor).catch(() => setAiEditor(null));
+    void getGpuStatus().then(setGpu).catch(() => setGpu(null));
   }, []);
+
+  const toggleGpu = async (enabled: boolean) => {
+    setFailure(null);
+    try {
+      await setGpuEnabled(enabled);
+      setGpu(await getGpuStatus());
+      // The banner reads its backend from the editor status, which only changes
+      // once the setting has been applied.
+      setAiEditor(await getAiEditorStatus());
+    } catch (cause) {
+      setFailure(String(cause));
+    }
+  };
+
+  const startEditorDownload = async (tool: AiEditorTool) => {
+    setEditorDownloading(tool);
+    setFailure(null);
+    try {
+      await downloadAiEditorModel(tool);
+      setAiEditor(await getAiEditorStatus());
+    } catch (cause) {
+      setFailure(String(cause));
+    } finally {
+      setEditorDownloading(null);
+    }
+  };
 
   /** Saves, then wakes every open grid so the covering matches the new threshold. */
   const saveNsfwPolicy = async (threshold: number, autoHide: boolean) => {
@@ -676,6 +770,106 @@ export function GallerySettingsPage() {
               </Button>
             </div>
           </div>
+        </Card>
+
+        {/* The editor's models live with every other model rather than behind the
+            tool that uses them: downloading is a Settings job, and burying four
+            more downloads inside the editor would have been the only place in
+            Hive where that was not true. */}
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 place-items-center rounded-xl bg-cream text-honey-deep">
+              <Sparkles size={19} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base font-extrabold text-ink">AI editor</h2>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                Download a tool here, then use it from the AI tab when you edit a photo.
+              </p>
+            </div>
+          </div>
+
+          {/* Off by default and said plainly. A graphics driver that faults takes
+              the whole app with it, and that is not something the program can
+              catch — so the choice is the user's, with the cost stated. */}
+          <div className="mt-4 rounded-2xl border border-ink/[.08] bg-canvas p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 text-xs font-extrabold text-ink">
+                  <Cpu size={13} className="shrink-0 text-honey-deep" />
+                  Use the graphics card
+                </p>
+                <p className="mt-1 max-w-xl text-[11px] leading-relaxed text-ink-muted">
+                  {gpu?.available
+                    ? "On by default. Painting from a description takes about 16 seconds here against 97 on the processor; the other tools are two to three times quicker. Erasing stays on the processor whatever this says — its model uses an operation graphics cards cannot run. If anything misbehaves, switch this off and everything still works, just slower."
+                    : "No usable graphics card was found, so everything runs on the processor."}
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={gpu?.enabled ?? false}
+                disabled={!gpu?.available}
+                onClick={() => void toggleGpu(!gpu?.enabled)}
+                className={cn(
+                  "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition disabled:opacity-40",
+                  gpu?.enabled ? "bg-honey" : "bg-ink/20",
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-0.5 size-5 rounded-full bg-white shadow transition-all",
+                    gpu?.enabled ? "left-[22px]" : "left-0.5",
+                  )}
+                />
+              </button>
+            </div>
+            <p className="mt-3 text-[10px] font-bold text-ink-muted">
+              {aiEditor?.gpuBackend
+                ? `On — running through ${aiEditor.gpuBackend}.`
+                : "Off — everything runs on the processor."}
+            </p>
+          </div>
+
+          {EDITOR_TOOLS.map((entry) => {
+            const ready = aiEditor?.[`${entry.tool}Ready` as const] ?? false;
+            const fetching = editorDownloading === entry.tool;
+            return (
+              <div
+                key={entry.tool}
+                className="mt-3 flex items-center justify-between gap-4 rounded-2xl border border-ink/[.08] bg-canvas p-4"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <entry.icon size={16} className="shrink-0 text-honey-deep" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-ink">
+                      {entry.label} <span className="text-ink-muted">({entry.model})</span>
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-ink-muted">{entry.blurb}</p>
+                  </div>
+                </div>
+                <div className="shrink-0">
+                  {ready ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-honey/15 px-3 py-2 text-[11px] font-bold text-honey-deep">
+                      <Check size={13} /> Ready
+                    </span>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      icon={<Download size={14} />}
+                      disabled={editorDownloading !== null}
+                      onClick={() => startEditorDownload(entry.tool)}
+                    >
+                      {fetching
+                        ? editorProgress
+                          ? `${editorProgress.percent}%`
+                          : "Startingâ€¦"
+                        : entry.size}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </Card>
 
         <Card className="p-6">

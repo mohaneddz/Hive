@@ -418,3 +418,49 @@ export interface CaptionResult {
   mediaId: string;
   text: string;
 }
+
+/** The AI editor's tools. Each downloads its own model on first use. */
+export type AiEditorTool = "upscale" | "cutout" | "segment" | "inpaint" | "generate";
+
+export interface AiEditorStatus {
+  upscaleReady: boolean;
+  cutoutReady: boolean;
+  segmentReady: boolean;
+  inpaintReady: boolean;
+  generateReady: boolean;
+  /** "DirectML", or null when everything runs on the processor. */
+  gpuBackend: string | null;
+}
+
+/**
+ * The graphics card. Off unless switched on: a driver fault closes Hive with
+ * nothing to catch, so the speed is the user's choice to make.
+ */
+export interface GpuStatus {
+  /** Whether a usable card was found at all. */
+  available: boolean;
+  enabled: boolean;
+}
+
+/** A click in the photo's own pixel coordinates. */
+export interface SelectPoint {
+  x: number;
+  y: number;
+  /** False means "not this" — carves back a selection that grabbed too much. */
+  positive: boolean;
+}
+
+/**
+ * An AI result computed and shown, but not written to disk. Held by the backend
+ * until Save, so the tools behave like the sliders: previewed, undoable, and
+ * committed once.
+ */
+export interface AiPreview {
+  /** PNG bytes, scaled down for display. */
+  preview: number[];
+  /** The full-resolution size that would be written. */
+  width: number;
+  height: number;
+  /** The tools applied so far, oldest first. */
+  steps: string[];
+}

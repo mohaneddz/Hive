@@ -1,6 +1,9 @@
 ﻿import { invoke } from "@tauri-apps/api/core";
 
 import type {
+  AiEditorStatus,
+  AiEditorTool,
+  AiPreview,
   AiStatus,
   Album,
   BackupInfo,
@@ -16,6 +19,7 @@ import type {
   ExportReport,
   Folder,
   FolderStats,
+  GpuStatus,
   LibraryHealth,
   LibraryStats,
   MediaItem,
@@ -29,6 +33,7 @@ import type {
   RankedItem,
   RenamePreview,
   SaveMode,
+  SelectPoint,
   SmartAlbum,
   SmartAlbumMatch,
   SmartAlbumRule,
@@ -370,6 +375,15 @@ export function lookupPlaceNames(
 /* ------------------------------------------------------------ preferences -- */
 
 /** 0 means no ceiling on the thumbnail cache. */
+export function getGpuStatus(): Promise<GpuStatus> {
+  return invoke("get_gpu_status");
+}
+
+/** Also drops every loaded model, so the change takes effect at once. */
+export function setGpuEnabled(enabled: boolean): Promise<void> {
+  return invoke("set_gpu_enabled", { enabled });
+}
+
 export function getNsfwPolicy(): Promise<NsfwPolicy> {
   return invoke("get_nsfw_policy");
 }
@@ -564,6 +578,94 @@ export function deleteSmartAlbum(albumId: string): Promise<void> {
 
 export function suggestSmartAlbums(): Promise<SmartAlbumSuggestion[]> {
   return invoke("suggest_smart_albums");
+}
+
+/* ----------------------------------------------------------- ai editor -- */
+
+export function getAiEditorStatus(): Promise<AiEditorStatus> {
+  return invoke("get_ai_editor_status");
+}
+
+/** Progress arrives on the `ai-editor:download:progress` event. */
+export function downloadAiEditorModel(tool: AiEditorTool): Promise<void> {
+  return invoke("download_ai_editor_model", { tool });
+}
+
+/*
+ * The tools return a preview and change nothing on disk. What they produce is
+ * held by the backend until `commitAiEdit`, which the editor's Save button
+ * calls — so an experiment can be undone, and stacking three tools still writes
+ * one file.
+ */
+
+export function previewUpscale(mediaId: string): Promise<AiPreview> {
+  return invoke("preview_upscale", { mediaId });
+}
+
+/** With no `backgroundPath` the result is a transparent cutout. */
+export function previewRemoveBackground(
+  mediaId: string,
+  backgroundPath?: string
+): Promise<AiPreview> {
+  return invoke("preview_remove_background", { mediaId, backgroundPath });
+}
+
+/** `maskPng` is white where something should disappear. */
+export function previewErase(mediaId: string, maskPng: Uint8Array): Promise<AiPreview> {
+  return invoke("preview_erase", { mediaId, maskPng: Array.from(maskPng) });
+}
+
+/**
+ * Paints `prompt` into the masked area. Far slower than the other tools —
+ * twenty-odd passes through a 1.7 GB model — so it reports progress per step
+ * and can be cancelled like any other job.
+ */
+export function previewGenerate(
+  mediaId: string,
+  maskPng: Uint8Array,
+  prompt: string,
+  steps?: number
+): Promise<AiPreview> {
+  return invoke("preview_generate", {
+    mediaId,
+    maskPng: Array.from(maskPng),
+    prompt,
+    steps,
+  });
+}
+
+/**
+ * Encodes the photo for click-to-select before the first click.
+ *
+ * The encoding costs about seven seconds and every click after it a tenth of
+ * one. Called when the AI tab opens, so that wait happens while the photo is
+ * being looked at rather than landing on the first click.
+ */
+export function warmSelection(mediaId: string): Promise<void> {
+  return invoke("warm_selection", { mediaId });
+}
+
+/** Returns the mask for whatever sits under the clicks, as PNG bytes. */
+export async function selectObject(
+  mediaId: string,
+  points: SelectPoint[]
+): Promise<Uint8Array> {
+  return new Uint8Array(await invoke<number[]>("select_object", { mediaId, points }));
+}
+
+/** What is waiting for this photo, so re-opening the editor keeps the work. */
+export function getAiEdit(mediaId: string): Promise<AiPreview | null> {
+  return invoke("get_ai_edit", { mediaId });
+}
+
+/** Throws the pending result away — what Reset calls. */
+export function discardAiEdit(): Promise<void> {
+  return invoke("discard_ai_edit");
+}
+
+/** Writes the pending result. Called by the editor's one Save button. */
+export function commitAiEdit(mediaId: string, mode: SaveMode): Promise<MediaItem> {
+  return invoke("commit_ai_edit", { mediaId, mode });
 }
 
 /* ----------------------------------------------------------- aesthetic -- */

@@ -12,31 +12,44 @@ import {
   RotateCw,
   Save,
   Sliders,
+  Sparkles,
   Tag,
   Wand2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
+import { AiToolsPanel } from "@/components/editor/AiToolsPanel";
 import { EditorCanvas } from "@/components/editor/EditorCanvas";
 import { SaveEditDialog } from "@/components/editor/SaveEditDialog";
-import { applyEdits, getMediaDetail, readMediaUrl, updateMediaMetadata } from "@/lib/tauri";
+import {
+  applyEdits,
+  commitAiEdit,
+  discardAiEdit,
+  getAiEdit,
+  getMediaDetail,
+  readMediaUrl,
+  updateMediaMetadata,
+} from "@/lib/tauri";
 import {
   FILTER_PRESETS,
   NEUTRAL_EDIT_OPS,
   type CropRect,
   type EditOps,
+  type AiPreview,
   type MediaItem,
   type SaveMode,
+  type SelectPoint,
 } from "@/types/media";
 import { cn } from "@/utils/cn";
 import { formatDate } from "@/utils/format";
 
-type Tab = "filters" | "adjust" | "crop" | "metadata";
+type Tab = "filters" | "adjust" | "crop" | "ai" | "metadata";
 
 const TABS: { key: Tab; label: string; icon: typeof Sliders }[] = [
   { key: "filters", label: "Filters", icon: Wand2 },
   { key: "adjust", label: "Adjust", icon: Sliders },
   { key: "crop", label: "Frame", icon: Crop },
+  { key: "ai", label: "AI", icon: Sparkles },
   { key: "metadata", label: "Details", icon: Tag },
 ];
 
@@ -92,10 +105,84 @@ export function EditorPage() {
   const stageRef = useRef<HTMLDivElement>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
 
+  // Clicks for the AI selection tool, kept in the photo's own pixels rather than
+  // the displayed ones — the stage is scaled to fit and the model is not.
+  const [selection, setSelection] = useState<SelectPoint[]>([]);
+
+  // An AI result that has been computed and shown but not written. It replaces
+  // the photo on the canvas, and the sliders keep applying on top of it, so the
+  // whole editor obeys one rule: nothing reaches the disk until Save.
+  const [pending, setPending] = useState<AiPreview | null>(null);
+
+  // Set while an AI result is on the canvas, so the photo loading in the
+  // background does not overwrite it. A ref rather than state because the image
+  // loads from a callback that would otherwise close over a stale value.
+  const stagedRef = useRef(false);
+
+  /** Draws a fresh AI result and makes it the base the sliders work on. */
+  const showPreview = useCallback((preview: AiPreview) => {
+    stagedRef.current = true;
+    setPending(preview);
+    setSelection([]);
+    const url = URL.createObjectURL(
+      new Blob([new Uint8Array(preview.preview) as BlobPart], { type: "image/png" }),
+    );
+    const element = new Image();
+    element.onload = () => {
+      setImage(element);
+      URL.revokeObjectURL(url);
+    };
+    element.src = url;
+  }, []);
+
+  const placeSelectionPoint = (event: React.MouseEvent) => {
+    if (tab !== "ai" || !stageRef.current || !item?.width || !item?.height) return;
+    const bounds = stageRef.current.getBoundingClientRect();
+    setSelection((previous) => [
+      ...previous,
+      {
+        x: ((event.clientX - bounds.left) / bounds.width) * item.width!,
+        y: ((event.clientY - bounds.top) / bounds.height) * item.height!,
+        // Shift means "not this part", which is how a selection that grabbed
+        // the whole person gets narrowed back to the bag they are holding.
+        positive: !event.shiftKey,
+      },
+    ]);
+  };
+
+  /** Puts the original photo back on the canvas. */
+  const loadOriginal = useCallback(() => {
+    if (!id) return;
+    // The 800px render is what the editor works against: a 50-megapixel original
+    // would cost a hundred times more for a preview you cannot see the difference in.
+    void readMediaUrl(id, "md")
+      .then((url) => {
+        const element = new Image();
+        element.onload = () => {
+          setImage(element);
+          URL.revokeObjectURL(url);
+        };
+        element.src = url;
+      })
+      .catch(() => {});
+  }, [id]);
+
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
     let objectUrl: string | null = null;
+    // A new photo has nothing staged until its own check says so. Without this
+    // the flag from the previous photo would suppress this one's image and leave
+    // the canvas empty.
+    stagedRef.current = false;
+
+    // Work in progress survives leaving the editor and coming back; losing an
+    // enlargement that took a minute because of a stray click would be cruel.
+    void getAiEdit(id)
+      .then((waiting) => {
+        if (!cancelled && waiting) showPreview(waiting);
+      })
+      .catch(() => {});
 
     void getMediaDetail(id).then((detail) => {
       if (cancelled) return;
@@ -105,8 +192,6 @@ export function EditorPage() {
       setTakenAtOverride(detail.takenAtOverride?.slice(0, 10) ?? "");
     });
 
-    // The 800px render is what the editor works against: a 50-megapixel original
-    // would cost a hundred times more for a preview you cannot see the difference in.
     void readMediaUrl(id, "md")
       .then((url) => {
         if (cancelled) {
@@ -116,7 +201,8 @@ export function EditorPage() {
         objectUrl = url;
         const element = new Image();
         element.onload = () => {
-          if (!cancelled) setImage(element);
+          // A staged result outranks the file: it is what the user is looking at.
+          if (!cancelled && !stagedRef.current) setImage(element);
         };
         element.src = url;
       })
@@ -126,7 +212,7 @@ export function EditorPage() {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [id]);
+  }, [id, showPreview]);
 
   // Rotating re-frames the picture, so a crop drawn on the old orientation no
   // longer means what it did.
@@ -188,17 +274,49 @@ export function EditorPage() {
 
   /* ------------------------------------------------------------- saving -- */
 
+  /** Anything at all to write: a slider moved, or an AI result staged. */
+  const hasChanges = !isNeutral(ops) || pending !== null;
+
+  /**
+   * Writes everything at once.
+   *
+   * An AI result and a colour adjustment both end up in the same file: the AI
+   * pixels are committed first, then the sliders are baked onto that result
+   * rather than onto the original. `overwrite` on the second step is deliberate
+   * and not a bug — the first step has already honoured the user's answer, and
+   * asking again would leave `photo (edited) (edited).jpg` behind.
+   */
   const save = async (mode: SaveMode) => {
     if (!id) return;
     setSaving(true);
     try {
-      const result = await applyEdits(id, ops, mode);
+      let target = id;
+      if (pending) {
+        target = (await commitAiEdit(id, mode)).id;
+        setPending(null);
+      }
+      const result = isNeutral(ops)
+        ? { id: target }
+        : await applyEdits(target, ops, pending ? "overwrite" : mode);
+
       setAskingSave(false);
       navigate(`/media/${result.id}`);
     } catch (cause) {
       await confirm(String(cause), { title: "Could not save", kind: "error" });
     } finally {
       setSaving(false);
+    }
+  };
+
+  /** Puts the photo back exactly as it was — sliders and AI alike. */
+  const resetEverything = async () => {
+    setOps(NEUTRAL_EDIT_OPS);
+    setSelection([]);
+    if (pending) {
+      setPending(null);
+      stagedRef.current = false;
+      await discardAiEdit().catch(() => {});
+      loadOriginal();
     }
   };
 
@@ -232,16 +350,24 @@ export function EditorPage() {
         >
           <ArrowLeft size={14} /> Back to photo
         </button>
-        <p className="min-w-0 truncate text-sm font-bold">{item.filename}</p>
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-2.5">
+          <p className="min-w-0 truncate text-sm font-bold">{item.filename}</p>
+          {/* Says what is waiting, so the Save button is never a surprise. */}
+          {pending && (
+            <span className="shrink-0 rounded-full bg-honey/20 px-2.5 py-1 text-[10px] font-extrabold text-honey">
+              {pending.steps.join(" → ")} · {pending.width}×{pending.height}
+            </span>
+          )}
+        </div>
         <div className="flex shrink-0 items-center gap-2">
           <button
-            onClick={() => setOps(NEUTRAL_EDIT_OPS)}
-            disabled={isNeutral(ops)}
+            onClick={resetEverything}
+            disabled={!hasChanges}
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/20 disabled:opacity-40"
           >
             <RotateCcw size={15} /> Reset
           </button>
-          <Button icon={<Save size={15} />} onClick={() => setAskingSave(true)} disabled={isNeutral(ops)}>
+          <Button icon={<Save size={15} />} onClick={() => setAskingSave(true)} disabled={!hasChanges}>
             Save…
           </Button>
         </div>
@@ -257,7 +383,11 @@ export function EditorPage() {
             onMouseMove={extendCrop}
             onMouseUp={endCrop}
             onMouseLeave={endCrop}
-            className={cn("relative flex max-h-full max-w-full", tab === "crop" && "cursor-crosshair")}
+            onClick={placeSelectionPoint}
+            className={cn(
+              "relative flex max-h-full max-w-full",
+              (tab === "crop" || tab === "ai") && "cursor-crosshair",
+            )}
           >
             <EditorCanvas
               image={image}
@@ -278,10 +408,31 @@ export function EditorPage() {
                 }}
               />
             )}
+            {tab === "ai" &&
+              item?.width &&
+              item?.height &&
+              selection.map((point, index) => (
+                <span
+                  key={index}
+                  className={cn(
+                    "pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow",
+                    point.positive ? "bg-honey" : "bg-red-500",
+                  )}
+                  style={{
+                    left: `${(point.x / item.width!) * 100}%`,
+                    top: `${(point.y / item.height!) * 100}%`,
+                  }}
+                />
+              ))}
           </div>
           {tab === "crop" && !ops.crop && (
             <p className="pointer-events-none absolute bottom-4 rounded-full bg-black/60 px-4 py-2 text-[11px] font-bold text-white/80">
               Drag across the photo to draw a crop
+            </p>
+          )}
+          {tab === "ai" && selection.length === 0 && (
+            <p className="pointer-events-none absolute bottom-4 rounded-full bg-black/60 px-4 py-2 text-[11px] font-bold text-white/80">
+              Click what you want to select · shift-click to exclude
             </p>
           )}
         </div>
@@ -289,7 +440,7 @@ export function EditorPage() {
         <aside className="flex w-80 shrink-0 flex-col overflow-y-auto overflow-x-hidden border-l border-white/10 bg-panel">
           {/* A four-column grid rather than a flex row: equal cells that are free
               to shrink, so no label can push the panel wider than it is. */}
-          <div className="sticky top-0 z-10 grid shrink-0 grid-cols-4 gap-1 border-b border-ink/[.08] bg-panel p-2.5">
+          <div className="sticky top-0 z-10 grid shrink-0 grid-cols-5 gap-1 border-b border-ink/[.08] bg-panel p-2.5">
             {TABS.map((entry) => (
               <button
                 key={entry.key}
@@ -497,6 +648,17 @@ export function EditorPage() {
                 </p>
               )}
             </div>
+          )}
+
+          {/* --------------------------------------------------------- ai -- */}
+          {tab === "ai" && item && (
+            <AiToolsPanel
+              item={item}
+              pending={pending}
+              selection={selection}
+              onSelectionChange={setSelection}
+              onPreview={showPreview}
+            />
           )}
 
           {/* --------------------------------------------------- metadata -- */}

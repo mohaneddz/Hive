@@ -382,14 +382,18 @@ export function ViewerPage() {
 
         {/* Right: Actions */}
         <div className="flex items-center gap-1.5">
+          {/* Labelled, unlike its neighbours. Editing is the one action here that
+              opens a whole other screen, and an unmarked icon among six others is
+              not something anyone finds by looking. */}
           {item.mediaType === "image" && (
             <button
               onClick={() => navigate(`/media/${item.id}/edit`)}
-              className="rounded-xl border border-border/30 bg-panel/60 p-2 text-ink-soft hover:text-honey hover:border-honey/40 transition"
-              title="Edit (E)"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-honey/40 bg-honey/12 px-3 py-2 text-xs font-extrabold text-honey transition hover:bg-honey/20"
+              title="Edit — filters, crop and AI tools (E)"
               aria-label="Edit photo"
             >
-              <SlidersHorizontal size={17} />
+              <SlidersHorizontal size={16} />
+              <span>Edit</span>
             </button>
           )}
 
