@@ -136,7 +136,7 @@ export interface CropRect {
 }
 
 /**
- * Applied in a fixed order â€” rotate â†’ flip â†’ crop â†’ colour â€” matching
+ * Applied in a fixed order — rotate → flip → crop → colour — matching
  * `apply_ops` in Rust, so the live preview and the written file agree.
  */
 export interface EditOps {
@@ -154,7 +154,7 @@ export interface EditOps {
   grayscale: number;
   /** 0 leaves colour alone, 1 is a full sepia tone. */
   sepia: number;
-  /** âˆ’1 cools the image towards blue, +1 warms it towards orange. */
+  /** −1 cools the image towards blue, +1 warms it towards orange. */
   temperature: number;
 }
 
@@ -319,7 +319,7 @@ export interface AiStatus {
   faceModelLoaded: boolean;
   facesIndexedCount: number;
   peopleCount: number;
-  /** Whether each optional model is on disk â€” drives the Download button. */
+  /** Whether each optional model is on disk — drives the Download button. */
   nsfwModelsReady: boolean;
   captionModelsReady: boolean;
 }

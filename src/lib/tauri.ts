@@ -211,7 +211,7 @@ export function updateMediaMetadata(
 /* ------------------------------------------------------------------ batch -- */
 
 /**
- * Pattern tokens: `{name}` original stem Â· `{n}` sequence number Â· `{date}`
+ * Pattern tokens: `{name}` original stem · `{n}` sequence number · `{date}`
  * capture day. The extension is always carried over, never part of the pattern.
  */
 export function previewBatchRename(
@@ -357,7 +357,7 @@ export function setGeocodingEnabled(enabled: boolean): Promise<void> {
   return invoke("set_geocoding_enabled", { enabled });
 }
 
-/** Everything already looked up â€” reads the cache, never the network. */
+/** Everything already looked up — reads the cache, never the network. */
 export function getCachedPlaceNames(): Promise<[number, number, string][]> {
   return invoke("get_cached_place_names");
 }
