@@ -15,6 +15,7 @@ import {
   Sliders,
   Sparkles,
   Tag,
+  Undo2,
   Wand2,
 } from "lucide-react";
 
@@ -30,6 +31,7 @@ import {
   getAiEdit,
   getMediaDetail,
   readMediaUrl,
+  undoAiEdit,
   updateMediaMetadata,
 } from "@/lib/tauri";
 import {
@@ -71,6 +73,31 @@ const CROP_PRESETS: { label: string; ratio: number | null }[] = [
   { label: "3:2", ratio: 3 / 2 },
   { label: "16:9", ratio: 16 / 9 },
 ];
+
+/**
+ * One thing Undo can take back.
+ *
+ * Two kinds, because the two halves of the editor keep their work in different
+ * places: the sliders and the frame are plain values held here, while an AI
+ * result is a full-resolution picture Rust is holding. Going back means putting
+ * the values back in one case and asking Rust to drop its last result in the
+ * other — but the *order* the two were done in matters, so they share one stack
+ * instead of each keeping its own.
+ */
+type Step = { kind: "ops"; ops: EditOps } | { kind: "ai" };
+
+/** Beyond this the oldest steps fall off. Slider values are cheap to keep. */
+const HISTORY_DEPTH = 40;
+
+/**
+ * Changes from the same slider this close together count as one step.
+ *
+ * Dragging a slider fires a change every frame. Recording each one would make
+ * Undo mean "one hundredth of a brightness change", which is not what anybody
+ * pressing it wants back. The clock restarts on every change, so a drag of any
+ * length stays one step and only a real pause begins another.
+ */
+const SAME_DRAG_MS = 700;
 
 /** The crop a preset produces: centred, and as large as the ratio allows. */
 function centredCrop(ratio: number | null, frameRatio: number): CropRect | null {
@@ -125,6 +152,39 @@ export function EditorPage() {
   // loads from a callback that would otherwise close over a stale value.
   const stagedRef = useRef(false);
 
+  // Where Undo goes back to, oldest first. Reset empties it, since there is
+  // nowhere left to go once everything is back to the original.
+  const [history, setHistory] = useState<Step[]>([]);
+  const [undoing, setUndoing] = useState(false);
+
+  // The control that was last touched, and when — how a drag is told apart from
+  // two separate changes. A ref rather than state: nothing on screen depends on
+  // it, and it has to be readable inside the handler that just wrote it.
+  const lastTouched = useRef<{ source: string; at: number }>({ source: "", at: 0 });
+
+  /**
+   * Marks the current state as somewhere Undo can return to.
+   *
+   * Called *before* the change, so what it files away is how things were.
+   *
+   * `slider` is the name of the control being dragged, and is the only thing
+   * that ever merges: everything else — a rotation, a preset, the start of a new
+   * crop — is a deliberate act and gets its own step however fast they come.
+   */
+  const remember = useCallback(
+    (slider?: string) => {
+      const now = Date.now();
+      const continuing =
+        slider !== undefined &&
+        lastTouched.current.source === slider &&
+        now - lastTouched.current.at < SAME_DRAG_MS;
+      lastTouched.current = { source: slider ?? "", at: now };
+      if (continuing) return;
+      setHistory((past) => [...past, { kind: "ops" as const, ops }].slice(-HISTORY_DEPTH));
+    },
+    [ops],
+  );
+
   /** Draws a fresh AI result and makes it the base the sliders work on. */
   const showPreview = useCallback((preview: AiPreview) => {
     stagedRef.current = true;
@@ -140,6 +200,21 @@ export function EditorPage() {
     };
     element.src = url;
   }, []);
+
+  /**
+   * A result the user just asked for, as opposed to one being restored.
+   *
+   * Only this one goes on the undo stack: reopening a photo redraws whatever was
+   * waiting, and counting that as a step would let Undo take back work the user
+   * did not just do.
+   */
+  const acceptPreview = useCallback(
+    (preview: AiPreview) => {
+      setHistory((past) => [...past, { kind: "ai" as const }].slice(-HISTORY_DEPTH));
+      showPreview(preview);
+    },
+    [showPreview],
+  );
 
   // Dragging a box over the photo, in fractions of the frame — the gesture
   // people already know from taking a screenshot. Clicking asks the model what
@@ -301,12 +376,18 @@ export function EditorPage() {
     // the flag from the previous photo would suppress this one's image and leave
     // the canvas empty.
     stagedRef.current = false;
+    setHistory([]);
+    lastTouched.current = { source: "", at: 0 };
 
     // Work in progress survives leaving the editor and coming back; losing an
     // enlargement that took a minute because of a stray click would be cruel.
     void getAiEdit(id)
       .then((waiting) => {
-        if (!cancelled && waiting) showPreview(waiting);
+        if (cancelled || !waiting) return;
+        showPreview(waiting);
+        // Rust still holds the version before each of those tools, so Undo can
+        // walk back through work done on an earlier visit as well.
+        setHistory(waiting.steps.map(() => ({ kind: "ai" }) as const));
       })
       .catch(() => {});
 
@@ -342,15 +423,19 @@ export function EditorPage() {
 
   // Rotating re-frames the picture, so a crop drawn on the old orientation no
   // longer means what it did.
-  const rotate = (degrees: number) =>
+  const rotate = (degrees: number) => {
+    remember();
     setOps((prev) => ({ ...prev, rotation: (prev.rotation + degrees + 360) % 360, crop: null }));
+  };
 
   const quarterTurned = ops.rotation === 90 || ops.rotation === 270;
   const naturalRatio = image ? image.naturalWidth / image.naturalHeight : 1;
   const frameRatio = quarterTurned ? 1 / naturalRatio : naturalRatio;
 
-  const applyPreset = (ratio: number | null) =>
+  const applyPreset = (ratio: number | null) => {
+    remember();
     setOps((prev) => ({ ...prev, crop: centredCrop(ratio, frameRatio) }));
+  };
 
   /* ------------------------------------------------------- crop by mouse -- */
 
@@ -368,6 +453,7 @@ export function EditorPage() {
     if (tab !== "crop") return;
     const point = pointFromEvent(event);
     if (!point) return;
+    remember();
     setDragStart(point);
     setOps((prev) => ({ ...prev, crop: { x: point.x, y: point.y, width: 0, height: 0 } }));
   };
@@ -438,11 +524,58 @@ export function EditorPage() {
   const resetEverything = async () => {
     setOps(NEUTRAL_EDIT_OPS);
     setSelection([]);
+    setHistory([]);
+    lastTouched.current = { source: "", at: 0 };
     if (pending) {
       setPending(null);
       stagedRef.current = false;
       await discardAiEdit().catch(() => {});
       loadOriginal();
+    }
+  };
+
+  /**
+   * Takes back the last thing that happened, whatever kind it was.
+   *
+   * The step only leaves the stack once it has actually been undone: an AI undo
+   * crosses into Rust, and if that fails the editor and Rust would otherwise
+   * disagree about how much work is left.
+   */
+  const undo = async () => {
+    const step = history[history.length - 1];
+    if (!step || !id) return;
+    const drop = () => setHistory((past) => past.slice(0, -1));
+
+    if (step.kind === "ops") {
+      setOps(step.ops);
+      // A restored value must not be swallowed by the gesture that follows it.
+      lastTouched.current = { source: "", at: 0 };
+      drop();
+      return;
+    }
+
+    setUndoing(true);
+    try {
+      const underneath = await undoAiEdit(id);
+      if (underneath) {
+        showPreview(underneath);
+        drop();
+      } else {
+        // That was the first tool, so the photo itself is what is left. And
+        // with Rust now holding nothing, no earlier step of ours can be an AI
+        // one either — dropping those keeps the button honest about what it
+        // can still do. The slider steps below them are absolute values, so
+        // removing entries from the middle costs them nothing.
+        setPending(null);
+        stagedRef.current = false;
+        setSelection([]);
+        loadOriginal();
+        setHistory((past) => past.slice(0, -1).filter((entry) => entry.kind !== "ai"));
+      }
+    } catch (cause) {
+      await confirm(String(cause), { title: "Could not undo", kind: "error" });
+    } finally {
+      setUndoing(false);
     }
   };
 
@@ -486,6 +619,17 @@ export function EditorPage() {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {/* One step back, next to the one that goes all the way back. Undoing
+              an AI step has to ask Rust for the earlier picture, so it can be
+              briefly busy where the others are instant. */}
+          <button
+            onClick={undo}
+            disabled={history.length === 0 || undoing}
+            title="Undo the last change"
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/20 disabled:opacity-40"
+          >
+            {undoing ? <Loader2 size={15} className="animate-spin" /> : <Undo2 size={15} />} Undo
+          </button>
           <button
             onClick={resetEverything}
             disabled={!hasChanges}
@@ -624,7 +768,8 @@ export function EditorPage() {
                 {FILTER_PRESETS.map((preset) => (
                   <button
                     key={preset.name}
-                    onClick={() =>
+                    onClick={() => {
+                      remember();
                       setOps((prev) => ({
                         // A preset is a look, not a reset: framing is preserved.
                         ...prev,
@@ -635,8 +780,8 @@ export function EditorPage() {
                         sepia: 0,
                         temperature: 0,
                         ...preset.ops,
-                      }))
-                    }
+                      }));
+                    }}
                     className="rounded-xl border border-ink/[.1] bg-canvas px-3 py-2.5 text-[11px] font-bold text-ink transition hover:border-honey/50 hover:bg-cream/40"
                   >
                     {preset.name}
@@ -666,13 +811,19 @@ export function EditorPage() {
                     {
                       icon: FlipHorizontal,
                       label: "Flip horizontal",
-                      onClick: () => setOps((p) => ({ ...p, flipHorizontal: !p.flipHorizontal })),
+                      onClick: () => {
+                        remember();
+                        setOps((p) => ({ ...p, flipHorizontal: !p.flipHorizontal }));
+                      },
                       active: ops.flipHorizontal,
                     },
                     {
                       icon: FlipVertical,
                       label: "Flip vertical",
-                      onClick: () => setOps((p) => ({ ...p, flipVertical: !p.flipVertical })),
+                      onClick: () => {
+                        remember();
+                        setOps((p) => ({ ...p, flipVertical: !p.flipVertical }));
+                      },
                       active: ops.flipVertical,
                     },
                   ].map((button) => (
@@ -717,12 +868,16 @@ export function EditorPage() {
                         max={slider.max}
                         step={0.01}
                         value={value}
-                        onChange={(event) =>
-                          setOps((prev) => ({ ...prev, [slider.key]: Number(event.target.value) }))
-                        }
-                        onDoubleClick={() =>
-                          setOps((prev) => ({ ...prev, [slider.key]: slider.neutral }))
-                        }
+                        onChange={(event) => {
+                          remember(slider.key);
+                          setOps((prev) => ({ ...prev, [slider.key]: Number(event.target.value) }));
+                        }}
+                        onDoubleClick={() => {
+                          // Nameless, so sending a slider back to neutral is a
+                          // step of its own rather than the tail of the drag.
+                          remember();
+                          setOps((prev) => ({ ...prev, [slider.key]: slider.neutral }));
+                        }}
                         className="w-full accent-[var(--color-honey)]"
                       />
                     </label>
@@ -781,19 +936,23 @@ export function EditorPage() {
                         max={1}
                         step={0.01}
                         value={ops.crop?.[key] ?? 0}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          remember(`crop-${key}`);
                           setOps((prev) =>
                             prev.crop
                               ? { ...prev, crop: { ...prev.crop, [key]: Number(event.target.value) } }
                               : prev,
-                          )
-                        }
+                          );
+                        }}
                         className="w-full accent-[var(--color-honey)]"
                       />
                     </label>
                   ))}
                   <button
-                    onClick={() => setOps((prev) => ({ ...prev, crop: null }))}
+                    onClick={() => {
+                      remember();
+                      setOps((prev) => ({ ...prev, crop: null }));
+                    }}
                     className="text-[11px] font-bold text-honey-deep underline-offset-2 hover:underline"
                   >
                     Clear the crop
@@ -817,7 +976,7 @@ export function EditorPage() {
               onSelectionChange={setSelection}
               box={box}
               onClearBox={() => setBox(null)}
-              onPreview={showPreview}
+              onPreview={acceptPreview}
               onBusyChange={setWorking}
             />
           )}

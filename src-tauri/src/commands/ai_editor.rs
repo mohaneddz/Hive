@@ -165,64 +165,8 @@ fn working_image(state: &State<'_, AppState>, media_id: &str) -> Result<RgbImage
         .map(|image| image.to_rgb8())
 }
 
-/// Records a result and returns what the editor should draw.
-fn stage(
-    state: &State<'_, AppState>,
-    media_id: &str,
-    produced: DynamicImage,
-    step: &str,
-) -> Result<AiPreview, String> {
-    let (width, height) = (produced.width(), produced.height());
-
-    let scale = PREVIEW_EDGE as f32 / width.max(height) as f32;
-    let preview = if scale < 1.0 {
-        produced.resize(
-            (width as f32 * scale).round() as u32,
-            (height as f32 * scale).round() as u32,
-            image::imageops::FilterType::Triangle,
-        )
-    } else {
-        produced.clone()
-    };
-    let bytes = png_bytes(&preview)?;
-
-    let mut pending = state.ai.pending.lock().map_err(|e| e.to_string())?;
-    let mut steps = match pending.take() {
-        Some(edit) if edit.media_id == media_id => edit.steps,
-        _ => Vec::new(),
-    };
-    steps.push(step.to_string());
-    *pending = Some(PendingEdit {
-        media_id: media_id.to_string(),
-        image: produced,
-        steps: steps.clone(),
-    });
-
-    Ok(AiPreview {
-        preview: bytes,
-        width,
-        height,
-        steps,
-    })
-}
-
-/// Throws away whatever is waiting, so Reset clears the AI work too.
-#[tauri::command]
-pub fn discard_ai_edit(state: State<'_, AppState>) -> Result<(), String> {
-    *state.ai.pending.lock().map_err(|e| e.to_string())? = None;
-    *state.ai.encoded.lock().map_err(|e| e.to_string())? = None;
-    Ok(())
-}
-
-/// The result waiting for this photo, if any — so re-opening the editor does not
-/// silently lose work in progress.
-#[tauri::command]
-pub fn get_ai_edit(state: State<'_, AppState>, media_id: String) -> Result<Option<AiPreview>, String> {
-    let pending = state.ai.pending.lock().map_err(|e| e.to_string())?;
-    let Some(edit) = pending.as_ref().filter(|edit| edit.media_id == media_id) else {
-        return Ok(None);
-    };
-
+/// What the editor should draw for a result, at a size a screen can use.
+fn preview_of(edit: &PendingEdit) -> Result<AiPreview, String> {
     let (width, height) = (edit.image.width(), edit.image.height());
     let scale = PREVIEW_EDGE as f32 / width.max(height) as f32;
     let preview = if scale < 1.0 {
@@ -235,12 +179,117 @@ pub fn get_ai_edit(state: State<'_, AppState>, media_id: String) -> Result<Optio
         edit.image.clone()
     };
 
-    Ok(Some(AiPreview {
+    Ok(AiPreview {
         preview: png_bytes(&preview)?,
         width,
         height,
         steps: edit.steps.clone(),
-    }))
+    })
+}
+
+/// How much undo history to hold in memory, in bytes.
+///
+/// Each entry is a whole picture at full resolution: a 12-megapixel photo is
+/// 36 MB, and enlarging it fourfold makes that 576 MB. Left unbounded, two
+/// enlargements in a row would cost more memory than the machine has.
+///
+/// The newest entry is always kept whatever its size — one step back is the
+/// thing that was asked for — and older ones are dropped until the rest fits.
+const UNDO_BUDGET: usize = 768 * 1024 * 1024;
+
+/// Files the superseded result away so Undo can bring it back.
+fn remember(history: &mut Vec<PendingEdit>, superseded: PendingEdit) {
+    history.push(superseded);
+
+    let mut held: usize = history.iter().map(|edit| edit.image.as_bytes().len()).sum();
+    while history.len() > 1 && held > UNDO_BUDGET {
+        held -= history.remove(0).image.as_bytes().len();
+    }
+}
+
+/// Records a result and returns what the editor should draw.
+fn stage(
+    state: &State<'_, AppState>,
+    media_id: &str,
+    produced: DynamicImage,
+    step: &str,
+) -> Result<AiPreview, String> {
+    // Always `pending` before `undo`, here and in `undo_ai_edit`: two locks
+    // taken in two orders is how a deadlock is written.
+    let mut pending = state.ai.pending.lock().map_err(|e| e.to_string())?;
+    let mut history = state.ai.undo.lock().map_err(|e| e.to_string())?;
+
+    let mut steps = match pending.take() {
+        Some(edit) if edit.media_id == media_id => {
+            let steps = edit.steps.clone();
+            remember(&mut history, edit);
+            steps
+        }
+        _ => {
+            // A different photo: its history is no use for this one.
+            history.clear();
+            Vec::new()
+        }
+    };
+    steps.push(step.to_string());
+
+    let edit = PendingEdit {
+        media_id: media_id.to_string(),
+        image: produced,
+        steps,
+    };
+    let preview = preview_of(&edit)?;
+    *pending = Some(edit);
+    Ok(preview)
+}
+
+/// Takes the last tool back, and returns what is left — `None` when that was
+/// the only one and the photo itself is what remains.
+#[tauri::command]
+pub fn undo_ai_edit(
+    state: State<'_, AppState>,
+    media_id: String,
+) -> Result<Option<AiPreview>, String> {
+    let mut pending = state.ai.pending.lock().map_err(|e| e.to_string())?;
+    let mut history = state.ai.undo.lock().map_err(|e| e.to_string())?;
+
+    // The picture the tools work from is about to change, so the encoding kept
+    // for click-to-select no longer describes it.
+    *state.ai.encoded.lock().map_err(|e| e.to_string())? = None;
+
+    match history.pop().filter(|edit| edit.media_id == media_id) {
+        Some(edit) => {
+            let preview = preview_of(&edit)?;
+            *pending = Some(edit);
+            Ok(Some(preview))
+        }
+        None => {
+            // Nothing older to return to, so what is left is the original.
+            *pending = None;
+            history.clear();
+            Ok(None)
+        }
+    }
+}
+
+/// Throws away whatever is waiting, so Reset clears the AI work too.
+#[tauri::command]
+pub fn discard_ai_edit(state: State<'_, AppState>) -> Result<(), String> {
+    *state.ai.pending.lock().map_err(|e| e.to_string())? = None;
+    state.ai.undo.lock().map_err(|e| e.to_string())?.clear();
+    *state.ai.encoded.lock().map_err(|e| e.to_string())? = None;
+    Ok(())
+}
+
+/// The result waiting for this photo, if any — so re-opening the editor does not
+/// silently lose work in progress.
+#[tauri::command]
+pub fn get_ai_edit(state: State<'_, AppState>, media_id: String) -> Result<Option<AiPreview>, String> {
+    let pending = state.ai.pending.lock().map_err(|e| e.to_string())?;
+    let Some(edit) = pending.as_ref().filter(|edit| edit.media_id == media_id) else {
+        return Ok(None);
+    };
+    preview_of(edit).map(Some)
 }
 
 /// Writes the pending result, through the same path the colour editor saves by.
@@ -265,6 +314,9 @@ pub fn commit_ai_edit(
             }
         }
     };
+    // Once it is on disk there is nothing left to take back, and the earlier
+    // versions are megabytes each.
+    state.ai.undo.lock().map_err(|e| e.to_string())?.clear();
 
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     save_derived_image(&app, &state, &conn, &media_id, &produced, &mode, "edited")
@@ -615,4 +667,57 @@ pub async fn preview_generate(
         format!("Painted “{summary}”")
     };
     stage(&state, &media_id, DynamicImage::ImageRgb8(painted), &label)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Roughly `megabytes` worth of picture, so the budget can be tested at a
+    /// realistic scale without allocating a gigabyte.
+    fn edit_of(megabytes: usize) -> PendingEdit {
+        let side = ((megabytes * 1024 * 1024 / 3) as f64).sqrt() as u32;
+        PendingEdit {
+            media_id: "photo".into(),
+            image: DynamicImage::ImageRgb8(RgbImage::new(side, side)),
+            steps: vec![format!("{megabytes} MB")],
+        }
+    }
+
+    #[test]
+    fn the_history_stays_under_its_budget() {
+        let mut history = Vec::new();
+        for _ in 0..12 {
+            remember(&mut history, edit_of(100));
+        }
+
+        let held: usize = history.iter().map(|edit| edit.image.as_bytes().len()).sum();
+        assert!(held <= UNDO_BUDGET, "kept {held} bytes, budget is {UNDO_BUDGET}");
+        assert!(history.len() < 12, "nothing was dropped");
+    }
+
+    #[test]
+    fn the_newest_step_is_kept_however_large_it_is() {
+        // An enlargement of a big photo can exceed the whole budget by itself.
+        // Dropping it would leave Undo unable to do the one thing it is for.
+        let mut history = Vec::new();
+        remember(&mut history, edit_of(200));
+        remember(&mut history, edit_of(1200));
+
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].steps, vec!["1200 MB".to_string()]);
+    }
+
+    #[test]
+    fn the_oldest_steps_go_first() {
+        let mut history = Vec::new();
+        for size in [300, 300, 300, 300] {
+            remember(&mut history, edit_of(size));
+        }
+
+        // Whatever survives, it is the tail: undo walks backwards, so losing the
+        // far end costs the steps furthest from where the user is.
+        let kept: Vec<&str> = history.iter().map(|e| e.steps[0].as_str()).collect();
+        assert!(kept.len() < 4 && !kept.is_empty(), "kept {kept:?}");
+    }
 }

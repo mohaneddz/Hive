@@ -663,6 +663,16 @@ export function discardAiEdit(): Promise<void> {
   return invoke("discard_ai_edit");
 }
 
+/**
+ * Takes the last AI tool back and returns what is left underneath.
+ *
+ * `null` means that tool was the first one, so the photo itself is what remains
+ * — the caller has to reload it rather than draw a preview.
+ */
+export function undoAiEdit(mediaId: string): Promise<AiPreview | null> {
+  return invoke("undo_ai_edit", { mediaId });
+}
+
 /** Writes the pending result. Called by the editor's one Save button. */
 export function commitAiEdit(mediaId: string, mode: SaveMode): Promise<MediaItem> {
   return invoke("commit_ai_edit", { mediaId, mode });

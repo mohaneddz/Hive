@@ -249,6 +249,7 @@ pub fn run() {
             commands::ai_editor::warm_selection,
             commands::ai_editor::get_ai_edit,
             commands::ai_editor::discard_ai_edit,
+            commands::ai_editor::undo_ai_edit,
             commands::ai_editor::commit_ai_edit,
         ])
         .run(tauri::generate_context!())

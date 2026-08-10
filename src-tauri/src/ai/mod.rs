@@ -65,6 +65,16 @@ pub struct AiState {
     /// enlarge what is left — because each one reads this before falling back to
     /// the file on disk.
     pub pending: Mutex<Option<PendingEdit>>,
+
+    /// What `pending` was before each of the tools that produced it, oldest
+    /// first — so Undo can take one tool back instead of all of them.
+    ///
+    /// Kept here rather than in the editor because these are full-resolution
+    /// pictures: the frontend only ever holds an 800-pixel preview, and sending
+    /// it whole copies of a 48-megapixel enlargement to hold on its behalf would
+    /// be absurd. Bounded in `ai_editor::remember`, which is the only place that
+    /// grows it.
+    pub undo: Mutex<Vec<PendingEdit>>,
 }
 
 /// An edit computed and previewed, still only in memory.
