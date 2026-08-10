@@ -57,6 +57,18 @@ const TARGET_EDGE: u32 = 512;
 /// demonstrated with: lower ignores you, higher burns the colours out.
 const GUIDANCE: f32 = 7.5;
 
+/// Surroundings to include beyond the marked area, as a share of its longest
+/// side — the same reasoning as `inpaint.rs`, and for the same reason.
+///
+/// Named for the picture, not the prompt: `CONTEXT` above is CLIP's token
+/// length, which is an entirely different thing.
+///
+/// The model works at 512 pixels whatever it is handed. Sent a whole 679×928
+/// screenshot, a thumbnail-sized mark inside it arrives as a few dozen pixels
+/// and comes back as a smear. Cropping to the mark and its context spends all
+/// 512 where they matter.
+const SURROUNDINGS: f32 = 0.75;
+
 fn ort_err(e: impl std::fmt::Display) -> anyhow::Error {
     anyhow::anyhow!("{e}")
 }
@@ -102,15 +114,52 @@ fn wants_half(session: &Session, name: &str) -> bool {
         })
 }
 
-/// The size to work at: the photo's shape, fitted inside 512 and rounded to a
-/// multiple of 8 because the VAE cannot represent anything else.
+/// The window around the marked area that will actually be sent to the model.
+///
+/// Identical in purpose to `inpaint::work_region`: the model's 512 pixels have
+/// to be spent on the area being replaced, not on the rest of the frame.
+fn work_region(mask: &GrayImage) -> Option<(u32, u32, u32, u32)> {
+    let (width, height) = mask.dimensions();
+    let (mut left, mut top, mut right, mut bottom) = (width, height, 0u32, 0u32);
+    for (x, y, pixel) in mask.enumerate_pixels() {
+        if pixel[0] >= 128 {
+            left = left.min(x);
+            top = top.min(y);
+            right = right.max(x);
+            bottom = bottom.max(y);
+        }
+    }
+    if right < left || bottom < top {
+        return None;
+    }
+
+    let marked = (right - left + 1).max(bottom - top + 1) as f32;
+    let pad = (marked * SURROUNDINGS).round() as u32;
+    let left = left.saturating_sub(pad);
+    let top = top.saturating_sub(pad);
+    let right = (right + pad).min(width - 1);
+    let bottom = (bottom + pad).min(height - 1);
+
+    Some((left, top, right - left + 1, bottom - top + 1))
+}
+
+/// Both sides have to be a multiple of this.
+///
+/// The VAE divides by 8, and the UNet then halves its own input three more
+/// times before doubling back and joining each stage to the one it skipped. If
+/// a latent side is not divisible by 8, those two halves come back different
+/// sizes and the join fails: `Concat node '/up_blocks.2/Concat' ... invalid
+/// parameter`, deep in the graph and nowhere near the cause. 8 × 8 = 64.
+const SIZE_STEP: u32 = VAE_SCALE * 8;
+
+/// The size to work at: the region's shape, fitted inside 512 and rounded so the
+/// UNet's own halving and doubling land on whole numbers.
 fn working_size(width: u32, height: u32) -> (u32, u32) {
     let scale = TARGET_EDGE as f32 / width.max(height) as f32;
-    let round8 = |value: f32| ((value / VAE_SCALE as f32).round().max(1.0) as u32) * VAE_SCALE;
-    (
-        round8(width as f32 * scale),
-        round8(height as f32 * scale),
-    )
+    let round = |value: f32| {
+        ((value / SIZE_STEP as f32).round().max(1.0) as u32) * SIZE_STEP
+    };
+    (round(width as f32 * scale), round(height as f32 * scale))
 }
 
 pub struct GenerateModel {
@@ -351,13 +400,19 @@ impl GenerateModel {
             anyhow::bail!("nothing was selected to replace");
         }
 
-        let (original_w, original_h) = source.dimensions();
-        let (w, h) = working_size(original_w, original_h);
+        // Only the window around the mark is sent, and only it comes back.
+        let Some((rx, ry, rw, rh)) = work_region(mask) else {
+            anyhow::bail!("nothing was selected to replace");
+        };
+        let region = image::imageops::crop_imm(source, rx, ry, rw, rh).to_image();
+        let region_mask = image::imageops::crop_imm(mask, rx, ry, rw, rh).to_image();
+
+        let (w, h) = working_size(rw, rh);
         let (lw, lh) = ((w / VAE_SCALE) as usize, (h / VAE_SCALE) as usize);
         let area = lw * lh;
 
-        let fitted = image::imageops::resize(source, w, h, FilterType::Lanczos3);
-        let fitted_mask = image::imageops::resize(mask, w, h, FilterType::Nearest);
+        let fitted = image::imageops::resize(&region, w, h, FilterType::Lanczos3);
+        let fitted_mask = image::imageops::resize(&region_mask, w, h, FilterType::Nearest);
 
         // The photo with the selection blanked out: what the model is allowed to
         // see of the area it must fill.
@@ -411,25 +466,94 @@ impl GenerateModel {
                 .collect();
 
             latents = ddim.step(&latents, &guided, t);
+
+            // Compared against a Python run of the same loop on the same weights
+            // when the output came back as noise. Printing the range each step is
+            // what located the divergence: two implementations of one algorithm
+            // agree at every step or they do not agree at all.
+            if std::env::var_os("HIVE_TRACE_DIFFUSION").is_some() {
+                let low = latents.iter().copied().fold(f32::INFINITY, f32::min);
+                let high = latents.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                println!(
+                    "  step {}/{}  t={t}  latent range {low:.2}..{high:.2}",
+                    index + 1,
+                    timesteps.len()
+                );
+            }
             on_progress(index + 1, timesteps.len());
         }
 
         let painted = self.decode_latents(&latents, lw, lh)?;
-        let painted = image::imageops::resize(&painted, original_w, original_h, FilterType::Lanczos3);
+        // Back to the window's own size, then dropped into a copy of the photo.
+        let painted_region = image::imageops::resize(&painted, rw, rh, FilterType::Lanczos3);
+        let mut painted_full = source.clone();
+        for (x, y, pixel) in painted_region.enumerate_pixels() {
+            painted_full.put_pixel(rx + x, ry + y, *pixel);
+        }
 
         // Only the selection is taken from the model. The VAE is lossy, so
         // decoding and re-encoding the untouched parts of the photo would soften
         // the whole thing for no reason.
-        Ok(composite(source, &painted, mask))
+        Ok(composite(source, &painted_full, mask))
     }
 }
 
-/// Keeps the original everywhere the mask is black.
+/// How far the painted area fades into the photo, as a share of its longest side.
+///
+/// A hard edge between invented pixels and real ones is visible even when the
+/// invention is good: the two were lit and decoded separately, and the join
+/// reads as a cut-out pasted on. Fading across a few percent hides the seam
+/// without blurring what was asked for.
+const BLEND: f32 = 0.04;
+
+/// Keeps the original where the mask is black, the painting where it is white,
+/// and mixes the two across the boundary.
 fn composite(original: &RgbImage, painted: &RgbImage, mask: &GrayImage) -> RgbImage {
+    let (width, height) = mask.dimensions();
+    let radius = ((width.max(height) as f32 * BLEND).round() as i32).clamp(1, 40);
+
+    // A box blur of the mask, separably: the softened mask is the mixing weight.
+    let mut rows = vec![0.0f32; (width * height) as usize];
+    for y in 0..height {
+        for x in 0..width {
+            let mut total = 0.0;
+            let mut count = 0.0;
+            for dx in -radius..=radius {
+                let nx = x as i32 + dx;
+                if nx >= 0 && nx < width as i32 {
+                    total += if mask.get_pixel(nx as u32, y)[0] >= 128 { 1.0 } else { 0.0 };
+                    count += 1.0;
+                }
+            }
+            rows[(y * width + x) as usize] = total / count;
+        }
+    }
+
     let mut out = original.clone();
-    for (x, y, pixel) in mask.enumerate_pixels() {
-        if pixel[0] >= 128 {
-            out.put_pixel(x, y, *painted.get_pixel(x, y));
+    for y in 0..height {
+        for x in 0..width {
+            let mut total = 0.0;
+            let mut count = 0.0;
+            for dy in -radius..=radius {
+                let ny = y as i32 + dy;
+                if ny >= 0 && ny < height as i32 {
+                    total += rows[(ny as u32 * width + x) as usize];
+                    count += 1.0;
+                }
+            }
+            let weight = (total / count).clamp(0.0, 1.0);
+            if weight <= 0.001 {
+                continue;
+            }
+            let from = original.get_pixel(x, y);
+            let to = painted.get_pixel(x, y);
+            let mut blended = [0u8; 3];
+            for channel in 0..3 {
+                blended[channel] = (to[channel] as f32 * weight
+                    + from[channel] as f32 * (1.0 - weight))
+                    .round() as u8;
+            }
+            out.put_pixel(x, y, image::Rgb(blended));
         }
     }
     out
@@ -453,14 +577,15 @@ mod tests {
     }
 
     #[test]
-    fn every_working_size_is_a_multiple_of_eight() {
-        // The VAE divides by 8; anything else cannot be represented and the
-        // session is rejected at the tensor.
-        for (w, h) in [(1913, 1077), (100, 37), (4000, 2251), (640, 640)] {
+    fn every_working_size_survives_the_unets_halving() {
+        // Not just the VAE's 8: the UNet halves three more times and rejoins,
+        // and an odd latent side fails inside `/up_blocks.2/Concat` with an
+        // "invalid parameter" that names nothing useful.
+        for (w, h) in [(1913, 1077), (100, 37), (4000, 2251), (640, 640), (560, 503)] {
             let (fitted_w, fitted_h) = working_size(w, h);
-            assert_eq!(fitted_w % VAE_SCALE, 0, "{w}x{h} gave width {fitted_w}");
-            assert_eq!(fitted_h % VAE_SCALE, 0, "{w}x{h} gave height {fitted_h}");
-            assert!(fitted_w >= VAE_SCALE && fitted_h >= VAE_SCALE);
+            assert_eq!(fitted_w % SIZE_STEP, 0, "{w}x{h} gave width {fitted_w}");
+            assert_eq!(fitted_h % SIZE_STEP, 0, "{w}x{h} gave height {fitted_h}");
+            assert!(fitted_w >= SIZE_STEP && fitted_h >= SIZE_STEP);
         }
     }
 
@@ -472,17 +597,38 @@ mod tests {
 
     #[test]
     fn only_the_selected_area_comes_from_the_model() {
-        let original = RgbImage::from_pixel(4, 1, image::Rgb([10, 10, 10]));
-        let painted = RgbImage::from_pixel(4, 1, image::Rgb([200, 200, 200]));
-        let mut mask = GrayImage::new(4, 1);
-        mask.put_pixel(1, 0, image::Luma([255]));
-        mask.put_pixel(2, 0, image::Luma([255]));
+        let original = RgbImage::from_pixel(200, 200, image::Rgb([10, 10, 10]));
+        let painted = RgbImage::from_pixel(200, 200, image::Rgb([200, 200, 200]));
+        let mut mask = GrayImage::new(200, 200);
+        for y in 80..120 {
+            for x in 80..120 {
+                mask.put_pixel(x, y, image::Luma([255]));
+            }
+        }
 
         let out = composite(&original, &painted, &mask);
-        assert_eq!(out.get_pixel(0, 0), &image::Rgb([10, 10, 10]));
-        assert_eq!(out.get_pixel(1, 0), &image::Rgb([200, 200, 200]));
-        assert_eq!(out.get_pixel(2, 0), &image::Rgb([200, 200, 200]));
-        assert_eq!(out.get_pixel(3, 0), &image::Rgb([10, 10, 10]));
+        // Well away from the mark, the photo is untouched to the byte.
+        assert_eq!(out.get_pixel(2, 2), &image::Rgb([10, 10, 10]));
+        // Well inside it, the painting has taken over completely.
+        assert_eq!(out.get_pixel(100, 100), &image::Rgb([200, 200, 200]));
+    }
+
+    #[test]
+    fn the_edge_of_the_painting_fades_instead_of_cutting() {
+        // The hard cut this replaced was visible even on good results: two sets
+        // of pixels lit and decoded separately, meeting at a line.
+        let original = RgbImage::from_pixel(200, 200, image::Rgb([10, 10, 10]));
+        let painted = RgbImage::from_pixel(200, 200, image::Rgb([200, 200, 200]));
+        let mut mask = GrayImage::new(200, 200);
+        for y in 80..120 {
+            for x in 80..120 {
+                mask.put_pixel(x, y, image::Luma([255]));
+            }
+        }
+
+        let out = composite(&original, &painted, &mask);
+        let edge = out.get_pixel(80, 100)[0];
+        assert!(edge > 10 && edge < 200, "the boundary should mix, got {edge}");
     }
 
     #[test]

@@ -10,6 +10,7 @@ import {
   Info,
   RotateCcw,
   RotateCw,
+  Loader2,
   Save,
   Sliders,
   Sparkles,
@@ -19,6 +20,7 @@ import {
 
 import { Button } from "@/components/ui/Button";
 import { AiToolsPanel } from "@/components/editor/AiToolsPanel";
+import { useJobProgress } from "@/hooks/useJobProgress";
 import { EditorCanvas } from "@/components/editor/EditorCanvas";
 import { SaveEditDialog } from "@/components/editor/SaveEditDialog";
 import {
@@ -79,6 +81,9 @@ function centredCrop(ratio: number | null, frameRatio: number): CropRect | null 
     : { x: (1 - relative) / 2, y: 0, width: relative, height: 1 };
 }
 
+/** Dragging past the picture's edge marks its edge, not somewhere outside it. */
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+
 function isNeutral(ops: EditOps): boolean {
   return (Object.keys(NEUTRAL_EDIT_OPS) as (keyof EditOps)[]).every(
     (key) => JSON.stringify(ops[key]) === JSON.stringify(NEUTRAL_EDIT_OPS[key]),
@@ -103,6 +108,7 @@ export function EditorPage() {
 
   // Crop dragging, in fractions of the displayed frame.
   const stageRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
 
   // Clicks for the AI selection tool, kept in the photo's own pixels rather than
@@ -135,14 +141,134 @@ export function EditorPage() {
     element.src = url;
   }, []);
 
-  const placeSelectionPoint = (event: React.MouseEvent) => {
-    if (tab !== "ai" || !stageRef.current || !item?.width || !item?.height) return;
-    const bounds = stageRef.current.getBoundingClientRect();
+  // Dragging a box over the photo, in fractions of the frame — the gesture
+  // people already know from taking a screenshot. Clicking asks the model what
+  // object is there; dragging simply takes the area, which needs no model and
+  // is the right tool when the point is to *replace* a region rather than find
+  // one.
+  const [box, setBox] = useState<CropRect | null>(null);
+  const [boxStart, setBoxStart] = useState<{ x: number; y: number } | null>(null);
+
+  // What an AI tool is doing right now, shown over the photo. A word on a button
+  // in the side panel is not enough for something that takes half a minute:
+  // people look at the picture, not at the button they just left.
+  const [working, setWorking] = useState<string | null>(null);
+  // Enlarging counts tiles and painting counts steps; the rest are one pass and
+  // have nothing to count.
+  const aiJob = useJobProgress().find((job) => job.kind === "generate" || job.kind === "upscale");
+
+  /**
+   * Where the picture sits inside the stage, in pixels.
+   *
+   * One measurement feeding both the drawing and the mask. They used to be
+   * worked out separately — clicks against the picture, overlays against the
+   * stage — and any gap between the two showed up as a rectangle that did not
+   * follow the cursor. Sharing this makes them agree by construction.
+   *
+   * The gap is real: `object-contain` centres the bitmap inside whatever box
+   * CSS gave the element, and a portrait photo in a wide space leaves empty
+   * bands on each side that belong to neither.
+   */
+  const [pictureBox, setPictureBox] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+
+  const measurePicture = useCallback(() => {
+    const canvas = canvasRef.current;
+    const stage = stageRef.current;
+    if (!canvas || !stage || !canvas.width || !canvas.height) return;
+
+    const drawn = canvas.getBoundingClientRect();
+    const outer = stage.getBoundingClientRect();
+    const pictureRatio = canvas.width / canvas.height;
+    const drawnRatio = drawn.width / drawn.height;
+    const width = drawnRatio > pictureRatio ? drawn.height * pictureRatio : drawn.width;
+    const height = drawnRatio > pictureRatio ? drawn.height : drawn.width / pictureRatio;
+
+    setPictureBox({
+      left: drawn.left - outer.left + (drawn.width - width) / 2,
+      top: drawn.top - outer.top + (drawn.height - height) / 2,
+      width,
+      height,
+    });
+  }, []);
+
+  // Re-measured whenever the picture or the space around it could have changed.
+  useEffect(() => {
+    measurePicture();
+  }, [image, tab, ops.rotation, measurePicture]);
+
+  useEffect(() => {
+    window.addEventListener("resize", measurePicture);
+    return () => window.removeEventListener("resize", measurePicture);
+  }, [measurePicture]);
+
+  const framePoint = (event: React.MouseEvent) => {
+    const stage = stageRef.current;
+    if (!stage || !pictureBox) return null;
+    const outer = stage.getBoundingClientRect();
+    return {
+      x: clamp01((event.clientX - outer.left - pictureBox.left) / pictureBox.width),
+      y: clamp01((event.clientY - outer.top - pictureBox.top) / pictureBox.height),
+    };
+  };
+
+  /** Turns fractions of the picture into pixels inside the stage. */
+  const onPicture = (x: number, y: number, width = 0, height = 0) =>
+    pictureBox && {
+      left: pictureBox.left + x * pictureBox.width,
+      top: pictureBox.top + y * pictureBox.height,
+      width: width * pictureBox.width,
+      height: height * pictureBox.height,
+    };
+
+  const beginBox = (event: React.MouseEvent) => {
+    if (tab !== "ai") return;
+    const point = framePoint(event);
+    if (!point) return;
+    setBoxStart(point);
+    setBox(null);
+  };
+
+  const extendBox = (event: React.MouseEvent) => {
+    if (tab !== "ai" || !boxStart) return;
+    const point = framePoint(event);
+    if (!point) return;
+    setBox({
+      x: Math.min(boxStart.x, point.x),
+      y: Math.min(boxStart.y, point.y),
+      width: Math.abs(point.x - boxStart.x),
+      height: Math.abs(point.y - boxStart.y),
+    });
+  };
+
+  /** A drag shorter than this was meant as a click, not a box. */
+  const TINY_DRAG = 0.02;
+
+  const endBox = (event: React.MouseEvent) => {
+    if (tab !== "ai" || !boxStart) return;
+    setBoxStart(null);
+
+    const drawn = box && box.width > TINY_DRAG && box.height > TINY_DRAG;
+    if (drawn) {
+      // A box replaces any dots: mixing "this area" with "this object" would
+      // leave nobody able to say what is selected.
+      setSelection([]);
+      return;
+    }
+
+    setBox(null);
+    if (!item?.width || !item?.height) return;
+    const point = framePoint(event);
+    if (!point) return;
     setSelection((previous) => [
       ...previous,
       {
-        x: ((event.clientX - bounds.left) / bounds.width) * item.width!,
-        y: ((event.clientY - bounds.top) / bounds.height) * item.height!,
+        x: point.x * item.width!,
+        y: point.y * item.height!,
         // Shift means "not this part", which is how a selection that grabbed
         // the whole person gets narrowed back to the bag they are holding.
         positive: !event.shiftKey,
@@ -379,60 +505,92 @@ export function EditorPage() {
               line up with the pixels underneath whatever the window size. */}
           <div
             ref={stageRef}
-            onMouseDown={beginCrop}
-            onMouseMove={extendCrop}
-            onMouseUp={endCrop}
+            onMouseDown={(event) => {
+              beginCrop(event);
+              beginBox(event);
+            }}
+            onMouseMove={(event) => {
+              extendCrop(event);
+              extendBox(event);
+            }}
+            onMouseUp={(event) => {
+              endCrop();
+              endBox(event);
+            }}
             onMouseLeave={endCrop}
-            onClick={placeSelectionPoint}
             className={cn(
-              "relative flex max-h-full max-w-full",
+              "relative inline-flex max-h-full max-w-full",
               (tab === "crop" || tab === "ai") && "cursor-crosshair",
             )}
           >
             <EditorCanvas
+              elementRef={canvasRef}
               image={image}
               ops={{ ...ops, crop: null }}
               className="block max-h-full max-w-full select-none rounded-lg object-contain shadow-2xl"
             />
-            {ops.crop && ops.crop.width > 0 && (
+            {ops.crop && ops.crop.width > 0 && pictureBox && (
               <div
                 className="pointer-events-none absolute border-2 border-honey"
                 style={{
-                  left: `${ops.crop.x * 100}%`,
-                  top: `${ops.crop.y * 100}%`,
-                  width: `${ops.crop.width * 100}%`,
-                  height: `${ops.crop.height * 100}%`,
+                  ...onPicture(ops.crop.x, ops.crop.y, ops.crop.width, ops.crop.height),
                   // Everything outside the crop is dimmed rather than hidden, so
                   // you can still see what you are cutting away.
                   boxShadow: "0 0 0 9999px rgba(0,0,0,0.6)",
                 }}
               />
             )}
+            {tab === "ai" && box && box.width > 0 && pictureBox && (
+              <div
+                className="pointer-events-none absolute border-2 border-honey bg-honey/15"
+                style={onPicture(box.x, box.y, box.width, box.height) ?? undefined}
+              />
+            )}
             {tab === "ai" &&
+              pictureBox &&
               item?.width &&
               item?.height &&
-              selection.map((point, index) => (
-                <span
-                  key={index}
-                  className={cn(
-                    "pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow",
-                    point.positive ? "bg-honey" : "bg-red-500",
-                  )}
-                  style={{
-                    left: `${(point.x / item.width!) * 100}%`,
-                    top: `${(point.y / item.height!) * 100}%`,
-                  }}
-                />
-              ))}
+              selection.map((point, index) => {
+                const at = onPicture(point.x / item.width!, point.y / item.height!);
+                return (
+                  <span
+                    key={index}
+                    className={cn(
+                      "pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow",
+                      point.positive ? "bg-honey" : "bg-red-500",
+                    )}
+                    style={{ left: at?.left, top: at?.top }}
+                  />
+                );
+              })}
           </div>
           {tab === "crop" && !ops.crop && (
             <p className="pointer-events-none absolute bottom-4 rounded-full bg-black/60 px-4 py-2 text-[11px] font-bold text-white/80">
               Drag across the photo to draw a crop
             </p>
           )}
-          {tab === "ai" && selection.length === 0 && (
+          {working && (
+            <div className="absolute inset-0 z-10 grid place-items-center bg-black/65 backdrop-blur-[2px]">
+              <div className="flex flex-col items-center gap-3 rounded-2xl bg-black/70 px-8 py-6">
+                <Loader2 size={30} className="animate-spin text-honey" />
+                <p className="text-sm font-extrabold text-white">{working}…</p>
+                {/* A moving bar rather than a percentage: these models answer in
+                    one pass and cannot report how far along they are. Saying
+                    "working" honestly beats inventing a number. */}
+                <span className="h-1 w-44 overflow-hidden rounded-full bg-white/15">
+                  <span className="block h-full w-1/3 animate-[slide_1.4s_ease-in-out_infinite] rounded-full bg-honey" />
+                </span>
+                <p className="text-[11px] font-semibold text-white/60">
+                  {aiJob && aiJob.total > 1
+                    ? `Step ${aiJob.current} of ${aiJob.total}`
+                    : "This can take a moment"}
+                </p>
+              </div>
+            </div>
+          )}
+          {tab === "ai" && selection.length === 0 && !box && !working && (
             <p className="pointer-events-none absolute bottom-4 rounded-full bg-black/60 px-4 py-2 text-[11px] font-bold text-white/80">
-              Click what you want to select · shift-click to exclude
+              Drag a box over the area · or click an object to select it
             </p>
           )}
         </div>
@@ -657,7 +815,10 @@ export function EditorPage() {
               pending={pending}
               selection={selection}
               onSelectionChange={setSelection}
+              box={box}
+              onClearBox={() => setBox(null)}
               onPreview={showPreview}
+              onBusyChange={setWorking}
             />
           )}
 

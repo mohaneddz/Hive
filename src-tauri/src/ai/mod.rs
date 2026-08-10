@@ -13,6 +13,8 @@ pub mod ocr;
 pub mod segment;
 pub mod session;
 #[cfg(test)]
+mod erase_check;
+#[cfg(test)]
 mod smoke;
 pub mod upscale;
 

@@ -20,6 +20,15 @@ use ort::value::Tensor;
 /// The size the export was frozen at.
 const SIZE: u32 = 512;
 
+/// How much of the surroundings to include beyond the marked area, as a share of
+/// its longest side.
+///
+/// The model invents from what it can see. Handed the marked rectangle and
+/// nothing else it has no wall, no horizon and no carpet to continue, and it
+/// smears. Half again on each side gives it something to work from without
+/// wasting the 512 pixels on parts of the photo nobody is changing.
+const CONTEXT: f32 = 0.75;
+
 /// Mask values at or above this count as "remove this".
 const MASK_CUTOFF: u8 = 127;
 
@@ -27,8 +36,86 @@ const MASK_CUTOFF: u8 = 127;
 /// not end on a visible edge.
 const FEATHER: i32 = 3;
 
+/// How far to grow the marked area before filling, as a share of its longest
+/// side.
+///
+/// Nobody draws a box exactly on an object's edge, and being a few pixels short
+/// leaves a rim of it behind — which reads as "it did not erase properly"
+/// rather than "the box was slightly too small". Growing the mark absorbs that,
+/// and costs only a little more background being reinvented.
+const GROW: f32 = 0.03;
+
 fn ort_err(e: impl std::fmt::Display) -> anyhow::Error {
     anyhow::anyhow!("{e}")
+}
+
+/// The part of the photo worth sending to the model: what was marked, plus
+/// enough of its surroundings to invent from.
+///
+/// This is what makes erasing on a large photo work at all. The model runs at
+/// 512 pixels whatever it is given, so handing it the whole frame spends that
+/// budget on the parts nobody is changing: a thumbnail marked in a 1300-pixel
+/// screenshot arrives as 55 pixels, and 55 pixels of anything comes back as a
+/// smudge. Cropping first spends all 512 on the area that matters.
+fn work_region(mask: &GrayImage) -> Option<(u32, u32, u32, u32)> {
+    let (width, height) = mask.dimensions();
+    let (mut left, mut top, mut right, mut bottom) = (width, height, 0u32, 0u32);
+    for (x, y, pixel) in mask.enumerate_pixels() {
+        if pixel[0] >= MASK_CUTOFF {
+            left = left.min(x);
+            top = top.min(y);
+            right = right.max(x);
+            bottom = bottom.max(y);
+        }
+    }
+    if right < left || bottom < top {
+        return None;
+    }
+
+    let marked = (right - left + 1).max(bottom - top + 1) as f32;
+    let pad = (marked * CONTEXT).round() as u32;
+    let left = left.saturating_sub(pad);
+    let top = top.saturating_sub(pad);
+    let right = (right + pad).min(width - 1);
+    let bottom = (bottom + pad).min(height - 1);
+
+    Some((left, top, right - left + 1, bottom - top + 1))
+}
+
+/// Widens the marked area by a few pixels in every direction.
+///
+/// A box-shaped mark is grown by a box-shaped amount, which is all that is
+/// needed: this is about covering the last rim of an object, not about tracing
+/// it. Applied to a traced outline it simply thickens it, which is the same
+/// help for the same reason.
+fn grown(mask: &GrayImage) -> GrayImage {
+    let (width, height) = mask.dimensions();
+    let radius = ((width.max(height) as f32 * GROW).round() as i32).clamp(1, 24);
+
+    // Two one-dimensional passes rather than one square window: the same result
+    // for a box, and linear in the radius instead of quadratic.
+    let mut horizontal = GrayImage::new(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let lit = (-radius..=radius).any(|dx| {
+                let nx = x as i32 + dx;
+                nx >= 0 && nx < width as i32 && mask.get_pixel(nx as u32, y)[0] >= MASK_CUTOFF
+            });
+            horizontal.put_pixel(x, y, image::Luma([if lit { 255 } else { 0 }]));
+        }
+    }
+
+    let mut out = GrayImage::new(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let lit = (-radius..=radius).any(|dy| {
+                let ny = y as i32 + dy;
+                ny >= 0 && ny < height as i32 && horizontal.get_pixel(x, ny as u32)[0] >= MASK_CUTOFF
+            });
+            out.put_pixel(x, y, image::Luma([if lit { 255 } else { 0 }]));
+        }
+    }
+    out
 }
 
 pub struct InpaintModel {
@@ -84,12 +171,19 @@ impl InpaintModel {
                 source.dimensions()
             );
         }
-        if mask.pixels().all(|pixel| pixel[0] < MASK_CUTOFF) {
+        // Grown first, so everything downstream — the window, the fill and the
+        // paste — works on the same slightly wider area.
+        let mask = &grown(mask);
+        let Some((rx, ry, rw, rh)) = work_region(mask) else {
             anyhow::bail!("nothing was marked for removal");
-        }
+        };
 
-        let small = image::imageops::resize(source, SIZE, SIZE, FilterType::Triangle);
-        let small_mask = image::imageops::resize(mask, SIZE, SIZE, FilterType::Triangle);
+        // Only this window ever reaches the model, and only it comes back.
+        let region = image::imageops::crop_imm(source, rx, ry, rw, rh).to_image();
+        let region_mask = image::imageops::crop_imm(mask, rx, ry, rw, rh).to_image();
+
+        let small = image::imageops::resize(&region, SIZE, SIZE, FilterType::Triangle);
+        let small_mask = image::imageops::resize(&region_mask, SIZE, SIZE, FilterType::Triangle);
 
         let side = SIZE as usize;
         let mut pixels = vec![0.0f32; 3 * side * side];
@@ -145,12 +239,14 @@ impl InpaintModel {
             }
         }
 
-        let repaired = image::imageops::resize(
-            &filled,
-            source.width(),
-            source.height(),
-            FilterType::Lanczos3,
-        );
+        // Back to the window's own size, then dropped into a copy of the photo
+        // so everything outside the window is untouched to the pixel.
+        let repaired_region =
+            image::imageops::resize(&filled, rw, rh, FilterType::Lanczos3);
+        let mut repaired = source.clone();
+        for (x, y, pixel) in repaired_region.enumerate_pixels() {
+            repaired.put_pixel(rx + x, ry + y, *pixel);
+        }
 
         Ok(paste_repair(source, &repaired, mask))
     }
@@ -222,6 +318,39 @@ mod tests {
             }
         }
         mask
+    }
+
+    #[test]
+    fn the_work_region_hugs_the_mask_rather_than_the_photo() {
+        // The whole point: a small mark in a large photo must not spend the
+        // model's 512 pixels on the rest of the frame.
+        let mut mask = GrayImage::new(1300, 900);
+        for y in 400..460 {
+            for x in 600..660 {
+                mask.put_pixel(x, y, image::Luma([255]));
+            }
+        }
+
+        let (x, y, w, h) = work_region(&mask).unwrap();
+        assert!(w < 300 && h < 300, "region {w}×{h} is far too wide");
+        // And it must still contain the mark, with room around it.
+        assert!(x < 600 && y < 400);
+        assert!(x + w > 660 && y + h > 460);
+    }
+
+    #[test]
+    fn the_work_region_stays_inside_the_photo() {
+        // A mark in the corner cannot pad past the edge.
+        let mut mask = GrayImage::new(100, 80);
+        mask.put_pixel(1, 1, image::Luma([255]));
+
+        let (x, y, w, h) = work_region(&mask).unwrap();
+        assert!(x + w <= 100 && y + h <= 80, "region {x},{y} {w}×{h} escapes");
+    }
+
+    #[test]
+    fn an_empty_mask_has_no_region() {
+        assert!(work_region(&GrayImage::new(40, 40)).is_none());
     }
 
     #[test]

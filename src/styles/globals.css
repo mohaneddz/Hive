@@ -85,3 +85,7 @@ button { cursor: pointer; }
 
 @media (max-width: 1040px) { main > div { padding-inline: 24px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
+
+/* The indeterminate bar used while an AI tool works. One pass through a model
+   reports no progress, so the bar says "running" rather than lying about how far. */
+@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(320%); } }

@@ -26,7 +26,14 @@ import {
   warmSelection,
 } from "@/lib/tauri";
 import { routes } from "@/config/routes";
-import type { AiEditorStatus, AiEditorTool, AiPreview, MediaItem, SelectPoint } from "@/types/media";
+import type {
+  AiEditorStatus,
+  AiEditorTool,
+  AiPreview,
+  CropRect,
+  MediaItem,
+  SelectPoint,
+} from "@/types/media";
 import { cn } from "@/utils/cn";
 
 const readyOf = (status: AiEditorStatus | null, tool: AiEditorTool) =>
@@ -50,11 +57,48 @@ function estimate(seconds: number, onGpu: boolean): string {
   return `about ${Math.round(value / 60)} minute${value >= 90 ? "s" : ""}`;
 }
 
-/** How many denoising steps to run. Fewer is rougher, and much faster. */
+/**
+ * How many denoising steps to run.
+ *
+ * Eight was too few and it showed: the first real results came back glowing,
+ * with the painted thing sitting on a bright halo instead of in the scene. The
+ * model needs passes to settle into its surroundings, and these two are the
+ * usable range rather than the fast one and the slow one.
+ */
 const QUALITY = [
-  { steps: 8, label: "Quick" },
-  { steps: 20, label: "Better" },
+  { steps: 16, label: "Quick" },
+  { steps: 30, label: "Better" },
 ];
+
+/**
+ * Turns a dragged box into the same black-and-white mask the models take.
+ *
+ * Drawn here rather than asked of the backend: a rectangle needs no model and
+ * no round trip, and going through SlimSAM to describe one would be asking a
+ * question whose answer is already known. White is the area to work on, which
+ * is the polarity both erasing and painting expect.
+ */
+async function maskFromBox(box: CropRect, width: number, height: number): Promise<Uint8Array> {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not prepare the selection");
+
+  context.fillStyle = "black";
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = "white";
+  context.fillRect(
+    Math.round(box.x * width),
+    Math.round(box.y * height),
+    Math.max(1, Math.round(box.width * width)),
+    Math.max(1, Math.round(box.height * height)),
+  );
+
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) throw new Error("Could not prepare the selection");
+  return new Uint8Array(await blob.arrayBuffer());
+}
 
 /** Shown in place of a tool whose model has not been downloaded yet. */
 function NeedsDownload({ label }: { label: string }) {
@@ -139,7 +183,10 @@ export function AiToolsPanel({
   pending,
   selection,
   onSelectionChange,
+  box,
+  onClearBox,
   onPreview,
+  onBusyChange,
 }: {
   item: MediaItem;
   /** What is already staged for this photo, if anything. */
@@ -147,8 +194,13 @@ export function AiToolsPanel({
   /** Clicks collected on the canvas, in the photo's own pixels. */
   selection: SelectPoint[];
   onSelectionChange: (points: SelectPoint[]) => void;
+  /** A box dragged over the photo, in fractions of the frame. */
+  box: CropRect | null;
+  onClearBox: () => void;
   /** Hands a fresh result to the page, which shows it and enables Save. */
   onPreview: (preview: AiPreview) => void;
+  /** Tells the page what is running, so it can cover the photo while it does. */
+  onBusyChange: (label: string | null) => void;
 }) {
   const [status, setStatus] = useState<AiEditorStatus | null>(null);
   const [busy, setBusy] = useState<AiEditorTool | null>(null);
@@ -193,15 +245,29 @@ export function AiToolsPanel({
     });
   }, [item.id, pending?.steps.length]);
 
+  /** What to say over the photo while each tool works. */
+  const WORKING: Record<AiEditorTool, string> = {
+    upscale: "Enlarging",
+    cutout: "Removing the background",
+    segment: "Tracing the outline",
+    inpaint: "Erasing",
+    generate: "Painting",
+  };
+
   const run = async (tool: AiEditorTool, work: () => Promise<void>) => {
     setBusy(tool);
     setFailure(null);
+    onBusyChange(WORKING[tool]);
     try {
       await work();
     } catch (cause) {
-      setFailure(String(cause));
+      // Every failure reaches the panel. The version that returned quietly when
+      // something was missing produced a button that did nothing at all, with
+      // no way to find out why.
+      setFailure(String(cause).replace(/^Error:\s*/, ""));
     } finally {
       setBusy(null);
+      onBusyChange(null);
     }
   };
 
@@ -233,18 +299,75 @@ export function AiToolsPanel({
       });
     });
 
+  /**
+   * What the next tool will work on.
+   *
+   * A dragged box wins over a computed mask: it is the more recent and more
+   * deliberate gesture, and it needs nothing to have been pressed first. This
+   * is what makes Erase and Paint reachable without going through the model at
+   * all — the earlier version left both buttons dead until "Show selection" had
+   * been found and pressed, which is not discoverable.
+   */
+  const currentMask = async (): Promise<Uint8Array> => {
+    if (!box) {
+      if (!maskPng) throw new Error("Select an area on the photo first");
+      return maskPng;
+    }
+    // The mask has to match the pixels the tool will actually work on. After an
+    // enlargement that is four times the photo's own size, and a mask built to
+    // the original would be rejected for the wrong shape.
+    const width = pending?.width ?? item.width;
+    const height = pending?.height ?? item.height;
+    if (!width || !height) {
+      throw new Error("This photo's size is unknown, so an area cannot be marked on it");
+    }
+    return maskFromBox(box, width, height);
+  };
+
+  const hasArea = Boolean(box) || maskPng !== null;
+
+  // The traced-outline path has always shown its mask; the box path showed only
+  // a rectangle drawn on the photo, which is not the same promise. Now both show
+  // exactly what will be removed, so a misplaced selection is visible before it
+  // costs half a minute.
+  useEffect(() => {
+    if (!box || !item.width || !item.height) return;
+    let stale = false;
+    void maskFromBox(box, pending?.width ?? item.width, pending?.height ?? item.height)
+      .then((png) => {
+        if (stale) return;
+        setMaskUrl((previous) => {
+          if (previous) URL.revokeObjectURL(previous);
+          return URL.createObjectURL(new Blob([png as BlobPart], { type: "image/png" }));
+        });
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, [box, item.width, item.height, pending?.width, pending?.height]);
+
+  const clearArea = () => {
+    onSelectionChange([]);
+    onClearBox();
+    setMaskPng(null);
+    setMaskUrl((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return null;
+    });
+  };
+
   const erase = () =>
     run("inpaint", async () => {
-      if (!maskPng) return;
-      onPreview(await previewErase(item.id, maskPng));
-      onSelectionChange([]);
+      onPreview(await previewErase(item.id, await currentMask()));
+      clearArea();
     });
 
   const paint = () =>
     run("generate", async () => {
-      if (!maskPng || !prompt.trim()) return;
-      onPreview(await previewGenerate(item.id, maskPng, prompt.trim(), steps));
-      onSelectionChange([]);
+      if (!prompt.trim()) throw new Error("Describe what should appear there");
+      onPreview(await previewGenerate(item.id, await currentMask(), prompt.trim(), steps));
+      clearArea();
     });
 
   const anyReady =
@@ -272,7 +395,7 @@ export function AiToolsPanel({
       )}
 
       <p className="text-[11px] leading-relaxed text-ink-muted">
-        Nothing here is saved until you press <b>Save</b> at the top. Try things freely â€”
+        Nothing here is saved until you press <b>Save</b> at the top. Try things freely —
         <b> Reset</b> puts the photo back exactly as it was.
       </p>
 
@@ -306,8 +429,8 @@ export function AiToolsPanel({
           >
             {busy === "upscale"
               ? upscaleJob && upscaleJob.total > 0
-                ? `Enlargingâ€¦ ${Math.round((upscaleJob.current / upscaleJob.total) * 100)}%`
-                : "Startingâ€¦"
+                ? `Enlarging… ${Math.round((upscaleJob.current / upscaleJob.total) * 100)}%`
+                : "Starting…"
               : "Enlarge"}
           </Button>
         ) : (
@@ -332,8 +455,8 @@ export function AiToolsPanel({
               disabled={busy !== null}
             >
               {busy === "cutout"
-                ? "Workingâ€¦"
-                : `Make transparent Â· ${estimate(CPU_SECONDS.cutout, onGpu)}`}
+                ? "Working…"
+                : `Make transparent · ${estimate(CPU_SECONDS.cutout, onGpu)}`}
             </Button>
             <Button
               variant="secondary"
@@ -361,26 +484,26 @@ export function AiToolsPanel({
         {readyOf(status, "segment") && readyOf(status, "inpaint") ? (
           <>
             <ol className="mt-3.5 space-y-2.5">
-              <Step number={1} done={selection.length > 0} active={selection.length === 0}>
-                <b>Click the thing</b> on the photo, to the left. A gold dot appears.
+              <Step number={1} done={hasArea} active={!hasArea}>
+                <b>Drag a box</b> over the photo, the way you would take a screenshot.
                 <br />
                 <span className="text-ink-muted">
-                  Shift-click adds a red dot meaning &ldquo;not this part&rdquo;.
+                  Or <b>click an object</b> and press Show selection, to have its exact
+                  outline traced. Shift-click means &ldquo;not this part&rdquo;.
                 </span>
               </Step>
-              <Step
-                number={2}
-                done={maskPng !== null}
-                active={selection.length > 0 && maskPng === null}
-              >
-                <b>Show selection.</b> The white area is what will disappear.
-              </Step>
-              <Step number={3} done={false} active={maskPng !== null}>
-                <b>Erase it.</b> The result appears on the canvas.
+              <Step number={2} done={false} active={hasArea}>
+                <b>Erase it</b>, or describe something else below.
               </Step>
             </ol>
 
-            <div className="mt-3.5 grid grid-cols-2 gap-2">
+            {hasArea && (
+              <p className="mt-3 rounded-xl bg-honey/12 px-3 py-2 text-[11px] font-bold text-honey-deep">
+                {box ? "Box selected." : "Outline traced."} Ready.
+              </p>
+            )}
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
               <Button
                 variant="secondary"
                 className="!h-8 !text-[11px]"
@@ -394,25 +517,35 @@ export function AiToolsPanel({
                 onClick={select}
                 disabled={busy !== null || selection.length === 0}
               >
-                {busy === "segment" ? "Lookingâ€¦" : "Show selection"}
+                {busy === "segment" ? "Looking…" : "Show selection"}
               </Button>
               <Button
                 variant="ghost"
                 className="!h-8 !text-[11px]"
-                onClick={() => onSelectionChange([])}
-                disabled={selection.length === 0}
+                onClick={clearArea}
+                disabled={!hasArea}
               >
-                Clear dots
+                Clear
               </Button>
             </div>
 
             {maskUrl && (
-              <div className="artwork-frame mt-3 aspect-video bg-black/85">
-                <img
-                  src={maskUrl}
-                  alt="White is what will be erased"
-                  className="size-full object-contain"
-                />
+              <div className="mt-3">
+                <div className="artwork-frame aspect-video bg-black/85">
+                  <img
+                    src={maskUrl}
+                    alt="White is what will be erased"
+                    className="size-full object-contain"
+                  />
+                </div>
+                {/* Says where the mask came from and where it sits. Two rounds
+                    of this went past on screenshots alone, each time arguing
+                    about a rectangle nobody could name — the numbers end that. */}
+                <p className="mt-1.5 text-[10px] font-bold text-ink-muted">
+                  {box
+                    ? `From your box · x ${box.x.toFixed(2)}–${(box.x + box.width).toFixed(2)} · y ${box.y.toFixed(2)}–${(box.y + box.height).toFixed(2)}`
+                    : "From the traced outline"}
+                </p>
               </div>
             )}
 
@@ -426,11 +559,11 @@ export function AiToolsPanel({
                 )
               }
               onClick={erase}
-              disabled={busy !== null || !maskPng}
+              disabled={busy !== null || !hasArea}
             >
               {busy === "inpaint"
-                ? "Erasingâ€¦"
-                : `Erase it Â· ${estimate(CPU_SECONDS.inpaint, onGpu)}`}
+                ? "Erasing…"
+                : `Erase it · ${estimate(CPU_SECONDS.inpaint, onGpu)}`}
             </Button>
 
           </>
@@ -447,7 +580,7 @@ export function AiToolsPanel({
           would guess at was also the one nobody could see. */}
       <div className="rounded-2xl border border-ink/[.08] bg-canvas p-4">
         <ToolHeading icon={Wand2} title="Paint something new">
-          Select an area, describe what belongs there, and it is painted in â€” a hat, a vase of
+          Select an area, describe what belongs there, and it is painted in — a hat, a vase of
           flowers, a different sky.
         </ToolHeading>
 
@@ -455,15 +588,15 @@ export function AiToolsPanel({
           readyOf(status, "segment") ? (
             <>
               <p className="mt-3 text-[11px] font-bold text-honey-deep">
-                {maskPng
-                  ? "Selection ready. Describe what should replace it."
-                  : "First pick an area with Show selection above."}
+                {hasArea
+                  ? "Area selected. Describe what should replace it."
+                  : "First drag a box over the photo, above."}
               </p>
               <input
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && maskPng && prompt.trim()) void paint();
+                  if (event.key === "Enter" && hasArea && prompt.trim()) void paint();
                 }}
                 placeholder="a vase of white flowers"
                 className="select-input mt-2.5 w-full"
@@ -500,16 +633,16 @@ export function AiToolsPanel({
                   )
                 }
                 onClick={paint}
-                disabled={busy !== null || !maskPng || !prompt.trim()}
+                disabled={busy !== null || !hasArea || !prompt.trim()}
               >
                 {busy === "generate"
                   ? generateJob && generateJob.total > 0
-                    ? `Paintingâ€¦ ${generateJob.current}/${generateJob.total}`
-                    : "Startingâ€¦"
+                    ? `Painting… ${generateJob.current}/${generateJob.total}`
+                    : "Starting…"
                   : "Paint it in"}
               </Button>
               <p className="mt-2 text-[10px] leading-relaxed text-ink-muted">
-                Press again for another attempt â€” every try starts from fresh noise, so no two are
+                Press again for another attempt — every try starts from fresh noise, so no two are
                 alike.
               </p>
             </>

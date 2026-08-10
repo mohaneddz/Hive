@@ -63,12 +63,23 @@ export function EditorCanvas({
   image,
   ops,
   className,
+  elementRef,
 }: {
   image: HTMLImageElement | null;
   ops: EditOps;
   className?: string;
+  /**
+   * Handed out so callers can measure where the picture actually landed.
+   *
+   * `object-contain` centres the bitmap inside whatever box CSS gives the
+   * element, and the two rarely have the same shape. A caller that measures the
+   * element, or worse its wrapper, maps clicks against a rectangle wider than
+   * the picture — which is how a selection ends up somewhere else entirely.
+   */
+  elementRef?: React.RefObject<HTMLCanvasElement | null>;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const ownRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = elementRef ?? ownRef;
   const frameRef = useRef<number | null>(null);
 
   useEffect(() => {
