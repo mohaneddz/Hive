@@ -28,6 +28,8 @@ tauri-plugin-store = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-log = "2"
+# Named directly so the log levels can be set per crate — see `run()`.
+log = "0.4"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -43,11 +45,37 @@ tokio = { version = "1", features = ["full"] }
 image_hasher = "2.0.0"
 mime_guess = "2"
 anyhow = "1"
-ort = "=2.0.0-rc.12"
+# `half` because Stable Diffusion ships as fp16: without it every tensor coming
+# out of that model is unreadable, with "Cannot extract Tensor<f32> from
+# Tensor<f16>" as the only clue.
+ort = { version = "=2.0.0-rc.12", features = ["half"] }
+half = "2"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 futures-util = "0.3"
 
+# DirectML rather than CUDA: it is part of Windows, works on any DX12 GPU, and
+# ships as one DLL instead of the gigabyte of runtime CUDA needs.
+#
+# Which adapter it picks is the whole story — see `ai/session.rs`. Left to its
+# default it takes the power-saving one, which on a laptop is the integrated
+# chip, and loading a 1.7 GB model into half a gigabyte faults the driver.
+[target.'cfg(windows)'.dependencies]
+ort = { version = "=2.0.0-rc.12", features = ["directml"] }
+
+
+# `tauri dev` builds with this profile, and its default of no optimisation is
+# brutal here: the AI tools walk images pixel by pixel in Rust, which unoptimised
+# runs tens of times slower. An enlargement that takes seconds in a real build
+# takes minutes in a development one, which reads as the app having hung.
+#
+# Level 2 for our own code keeps compiles reasonable; dependencies get the full
+# treatment since they are built once and rarely change.
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 3
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

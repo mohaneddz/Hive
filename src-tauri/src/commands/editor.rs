@@ -123,22 +123,52 @@ fn apply_ops(image: DynamicImage, ops: &EditOps) -> DynamicImage {
     adjust_colour(image, ops)
 }
 
+/// Writes the image, then moves it into place in one step.
+///
+/// The rename is what matters. Watched folders are watched: the moment a file
+/// appears, the watcher opens it to index and thumbnail it. Encoding a large
+/// photo takes seconds, so writing straight to the destination leaves a long
+/// window in which the watcher reads a half-written file — which it reported as
+/// `failed to decode image: unexpected end of file`, and which could index a
+/// truncated photo as if it were the real one.
+///
+/// A rename within the same directory is atomic: the watcher sees nothing, or it
+/// sees the finished file. `ensure_models` already downloads this way.
 fn write_image(image: &DynamicImage, target: &Path) -> Result<(), String> {
+    // Derived from the real destination — the staging name ends in `.part` and
+    // would otherwise be read as an unknown format.
     let format = ImageFormat::from_path(target).unwrap_or(ImageFormat::Jpeg);
+    let staging = target.with_extension(format!(
+        "{}.part",
+        target
+            .extension()
+            .map(|e| e.to_string_lossy().to_string())
+            .unwrap_or_default()
+    ));
 
-    if format == ImageFormat::Jpeg {
-        // JPEG has no alpha channel, and the encoder needs an explicit quality.
-        let file = std::fs::File::create(target).map_err(|e| e.to_string())?;
-        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-            std::io::BufWriter::new(file),
-            JPEG_QUALITY,
-        );
-        return encoder
-            .encode_image(&image.to_rgb8())
-            .map_err(|e| e.to_string());
+    let write_to = |path: &Path| -> Result<(), String> {
+        if format == ImageFormat::Jpeg {
+            // JPEG has no alpha channel, and the encoder needs an explicit quality.
+            let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
+                std::io::BufWriter::new(file),
+                JPEG_QUALITY,
+            );
+            return encoder
+                .encode_image(&image.to_rgb8())
+                .map_err(|e| e.to_string());
+        }
+        image
+            .save_with_format(path, format)
+            .map_err(|e| e.to_string())
+    };
+
+    write_to(&staging)?;
+    if let Err(error) = std::fs::rename(&staging, target) {
+        let _ = std::fs::remove_file(&staging);
+        return Err(error.to_string());
     }
-
-    image.save_with_format(target, format).map_err(|e| e.to_string())
+    Ok(())
 }
 
 /// Re-encoding drops the EXIF block, because the imaging crate writes pixels and
@@ -174,7 +204,35 @@ pub fn apply_edits(
     mode: String,
 ) -> Result<MediaItem, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let source_path: String = conn
+        .query_row(
+            "SELECT path FROM media_items WHERE id = ?1",
+            params![media_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
 
+    let image = image::open(&source_path).map_err(|e| e.to_string())?;
+    let edited = apply_ops(image, &ops);
+
+    save_derived_image(&app, &state, &conn, &media_id, &edited, &mode, "edited")
+}
+
+/// Writes a produced image beside — or over — its source, then makes the library
+/// agree with what is now on disk.
+///
+/// Shared by the colour editor and by every AI tool, because "save a copy or
+/// replace the original?" has to mean exactly the same thing in all of them.
+/// `suffix` is the word placed in the copy's name, e.g. `photo (enlarged).jpg`.
+pub fn save_derived_image(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    conn: &Connection,
+    media_id: &str,
+    produced: &DynamicImage,
+    mode: &str,
+    suffix: &str,
+) -> Result<MediaItem, String> {
     let (source_path, filename, folder_id, taken_at): (String, String, String, Option<String>) = conn
         .query_row(
             "SELECT path, filename, folder_id, taken_at FROM media_items WHERE id = ?1",
@@ -184,11 +242,10 @@ pub fn apply_edits(
         .map_err(|e| e.to_string())?;
 
     let source = PathBuf::from(&source_path);
-    let image = image::open(&source).map_err(|e| e.to_string())?;
-    let edited = apply_ops(image, &ops);
+    let edited = produced;
     let now = chrono::Utc::now().to_rfc3339();
 
-    let target = match mode.as_str() {
+    let target = match mode {
         "overwrite" => source.clone(),
         "copy" => {
             let stem = Path::new(&filename)
@@ -200,15 +257,15 @@ pub fn apply_edits(
                 .map(|e| format!(".{}", e.to_string_lossy()))
                 .unwrap_or_default();
             let parent = source.parent().unwrap_or(Path::new("."));
-            unique_destination(parent, &format!("{stem} (edited){extension}"))
+            unique_destination(parent, &format!("{stem} ({suffix}){extension}"))
         }
         other => return Err(format!("Unknown save mode: {other}")),
     };
 
-    write_image(&edited, &target)?;
+    write_image(edited, &target)?;
 
     // Re-index so size, dimensions and hash match what is now on disk.
-    let indexed = indexing::index_file(&conn, &folder_id, &target).map_err(|e| e.to_string())?;
+    let indexed = indexing::index_file(conn, &folder_id, &target).map_err(|e| e.to_string())?;
     let edited_id = match indexed {
         Some(file) => file.item.id,
         // An overwrite that somehow produced identical bytes leaves the row alone.
@@ -221,8 +278,8 @@ pub fn apply_edits(
             .map_err(|e| e.to_string())?,
     };
 
-    preserve_extracted_metadata(&conn, &edited_id, taken_at)?;
-    let _ = thumbnails::generate_for_image(&conn, &state.app_data_dir, &edited_id, &target);
+    preserve_extracted_metadata(conn, &edited_id, taken_at)?;
+    let _ = thumbnails::generate_for_image(conn, &state.app_data_dir, &edited_id, &target);
     conn.execute(
         "UPDATE media_items SET edited_at = ?1 WHERE id = ?2",
         params![now, edited_id],
@@ -248,8 +305,8 @@ pub fn apply_edits(
         }
     }
 
-    let item = row_to_media_item(&conn, &edited_id).map_err(|e| e.to_string())?;
-    let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+    let item = row_to_media_item(conn, &edited_id).map_err(|e| e.to_string())?;
+    let _ = tauri::Emitter::emit(app, "media:changed", &folder_id);
     Ok(item)
 }
 

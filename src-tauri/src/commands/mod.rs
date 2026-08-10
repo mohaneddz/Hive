@@ -1,5 +1,6 @@
 pub mod aesthetic;
 pub mod ai;
+pub mod ai_editor;
 pub mod albums;
 pub mod backup;
 pub mod best_photo;

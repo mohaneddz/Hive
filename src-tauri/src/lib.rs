@@ -23,7 +23,29 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_log::Builder::default().build())
+        // Levels matter here more than they look. Left at its default the logger
+        // records everything, and `reqwest` pulls in `h2`, which traces every
+        // HTTP/2 frame it reads. Downloading the AI models produced 810,000 log
+        // lines in three minutes — 67 MB written to stdout and to a file, all of
+        // it synchronous — and Windows killed the app for not answering
+        // (`AppHangB1`). The transport's internals are never what a photo library
+        // needs from a log.
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Info)
+                .level_for("h2", log::LevelFilter::Warn)
+                .level_for("hyper", log::LevelFilter::Warn)
+                .level_for("hyper_util", log::LevelFilter::Warn)
+                .level_for("rustls", log::LevelFilter::Warn)
+                .level_for("reqwest", log::LevelFilter::Warn)
+                .level_for("tokio_util", log::LevelFilter::Warn)
+                .level_for("tracing", log::LevelFilter::Warn)
+                // ONNX Runtime narrates every graph optimisation it applies, once
+                // per model load. Useful when a session refuses to start, noise
+                // the rest of the time.
+                .level_for("ort", log::LevelFilter::Warn)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
@@ -48,6 +70,10 @@ pub fn run() {
                 rows.collect::<rusqlite::Result<Vec<_>>>()?
             };
 
+            // Read before any model is opened: a session keeps whichever provider
+            // it was built with for its whole life.
+            ai::session::set_gpu_enabled(commands::preferences::gpu_enabled(&conn));
+
             let ai_state = std::sync::Arc::new(ai::AiState::default());
 
             let watchers = watcher::WatcherRegistry::default();
@@ -63,32 +89,35 @@ pub fn run() {
                 );
             }
 
-            // Warm-load the CLIP/OCR models in the background if they were already downloaded
-            // in a previous session, so semantic search / OCR-as-you-go work immediately.
-            if ai::model_manager::clip_models_ready(&app_data_dir) {
+            // Warm-load whatever was downloaded in an earlier session, so semantic
+            // search, OCR and face recognition work the moment the window opens.
+            //
+            // One task loading them in turn, not three racing. Building several
+            // ONNX sessions at the same moment crashed the process outright, with
+            // an access violation inside the runtime and nothing in the log after
+            // it — intermittently, which is exactly how a race behaves. Nothing
+            // here is time-critical enough to be worth that.
+            {
                 let ai_state = ai_state.clone();
-                let clip_dir = ai::model_manager::clip_dir(&app_data_dir);
+                let app_data_dir = app_data_dir.clone();
                 tauri::async_runtime::spawn_blocking(move || {
-                    if let Ok(model) = ai::clip::ClipModel::load(&clip_dir) {
-                        *ai_state.clip.lock().unwrap() = Some(model);
+                    if ai::model_manager::clip_models_ready(&app_data_dir) {
+                        let dir = ai::model_manager::clip_dir(&app_data_dir);
+                        if let Ok(model) = ai::clip::ClipModel::load(&dir) {
+                            *ai_state.clip.lock().unwrap() = Some(model);
+                        }
                     }
-                });
-            }
-            if ai::model_manager::ocr_models_ready(&app_data_dir) {
-                let ai_state = ai_state.clone();
-                let ocr_dir = ai::model_manager::ocr_dir(&app_data_dir);
-                tauri::async_runtime::spawn_blocking(move || {
-                    if let Ok(model) = ai::ocr::OcrModel::load(&ocr_dir) {
-                        *ai_state.ocr.lock().unwrap() = Some(model);
+                    if ai::model_manager::ocr_models_ready(&app_data_dir) {
+                        let dir = ai::model_manager::ocr_dir(&app_data_dir);
+                        if let Ok(model) = ai::ocr::OcrModel::load(&dir) {
+                            *ai_state.ocr.lock().unwrap() = Some(model);
+                        }
                     }
-                });
-            }
-            if ai::model_manager::face_models_ready(&app_data_dir) {
-                let ai_state = ai_state.clone();
-                let face_dir = ai::model_manager::face_dir(&app_data_dir);
-                tauri::async_runtime::spawn_blocking(move || {
-                    if let Ok(model) = ai::face::FaceModel::load(&face_dir) {
-                        *ai_state.face.lock().unwrap() = Some(model);
+                    if ai::model_manager::face_models_ready(&app_data_dir) {
+                        let dir = ai::model_manager::face_dir(&app_data_dir);
+                        if let Ok(model) = ai::face::FaceModel::load(&dir) {
+                            *ai_state.face.lock().unwrap() = Some(model);
+                        }
                     }
                 });
             }
@@ -187,6 +216,8 @@ pub fn run() {
             commands::preferences::get_cache_limit_mb,
             commands::preferences::set_cache_limit_mb,
             commands::preferences::apply_cache_limit,
+            commands::preferences::get_gpu_status,
+            commands::preferences::set_gpu_enabled,
             commands::preferences::get_nsfw_policy,
             commands::preferences::set_nsfw_policy,
             commands::preferences::get_shortcut_overrides,
@@ -208,6 +239,17 @@ pub fn run() {
             commands::captions::download_caption_model,
             commands::captions::backfill_captions,
             commands::captions::get_caption,
+            commands::ai_editor::get_ai_editor_status,
+            commands::ai_editor::download_ai_editor_model,
+            commands::ai_editor::preview_upscale,
+            commands::ai_editor::preview_remove_background,
+            commands::ai_editor::preview_erase,
+            commands::ai_editor::preview_generate,
+            commands::ai_editor::select_object,
+            commands::ai_editor::warm_selection,
+            commands::ai_editor::get_ai_edit,
+            commands::ai_editor::discard_ai_edit,
+            commands::ai_editor::commit_ai_edit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hive");

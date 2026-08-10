@@ -83,6 +83,102 @@ pub const CAPTION_FILES: &[ModelFile] = &[
     },
 ];
 
+/* ------------------------------------------------------------ AI editor -- */
+//
+// Each editor tool downloads on its own, the first time it is used. Someone who
+// only ever enlarges a photo pays 4.9 MB and nothing else.
+//
+// Every licence here is Apache 2.0 or BSD-3. The obvious picks were all ruled
+// out on that basis: RMBG-1.4 and CodeFormer are non-commercial, and every
+// Ultralytics YOLO is AGPL, which would pull Hive's own source under AGPL with
+// it. See `.idea/AI-Editor.md` for the full comparison.
+
+/// Real-ESRGAN general x4v3 (BSD-3): the compact variant its authors built for
+/// real photographs rather than clean benchmark images. Under 5 MB.
+pub const UPSCALE_FILES: &[ModelFile] = &[ModelFile {
+    url: "https://huggingface.co/Heliosoph/realesrgan-onnx/resolve/main/realesr-general-x4v3.onnx",
+    filename: "upscale.onnx",
+}];
+
+/// Two cutout models, because they are good at different things. MODNet was
+/// trained on people and resolves hair strand by strand; ISNet handles
+/// everything else. Which one runs is decided by whether a face was detected.
+///
+/// MODNet is taken unquantized — 26 MB rather than 6.6. The quantized export
+/// crashed the graphics driver outright: DirectML's coverage of quantization
+/// operators is incomplete, and where it is missing the failure is a fault in
+/// native code, not a refusal. ISNet below was already unquantized and never
+/// had the problem, which is what made the pattern visible.
+pub const CUTOUT_FILES: &[ModelFile] = &[
+    ModelFile {
+        url: "https://huggingface.co/Xenova/modnet/resolve/main/onnx/model.onnx",
+        filename: "portrait.onnx",
+    },
+    ModelFile {
+        url: "https://huggingface.co/tomjackson2023/rembg/resolve/main/isnet-general-use.onnx",
+        filename: "general.onnx",
+    },
+];
+
+/// SlimSAM: SAM pruned to a fraction of its size. Split in two on purpose — the
+/// encoder runs once per photo, the decoder runs on every click, so selecting
+/// costs one small pass rather than a full one.
+///
+/// Unquantized for the same reason as MODNet: 40 MB instead of 14, against a
+/// graphics driver that faults on the quantized build.
+pub const SEGMENT_FILES: &[ModelFile] = &[
+    ModelFile {
+        url: "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/vision_encoder.onnx",
+        filename: "encoder.onnx",
+    },
+    ModelFile {
+        url: "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/prompt_encoder_mask_decoder.onnx",
+        filename: "decoder.onnx",
+    },
+];
+
+/// LaMa (Apache 2.0). Its Fourier convolutions give every layer a view of the
+/// whole frame, which is why it can carry a wall or a horizon across a large
+/// hole where ordinary inpainters smear.
+pub const INPAINT_FILES: &[ModelFile] = &[ModelFile {
+    url: "https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx",
+    filename: "inpaint.onnx",
+}];
+
+/// Stable Diffusion 1.5 **inpainting** — the generative tool.
+///
+/// Verified to be the real thing rather than an ordinary model pressed into
+/// service: its `model_index.json` names `OnnxStableDiffusionInpaintPipeline`,
+/// and its UNet takes 9 channels. Several candidates that look right by name
+/// declare 4, and cannot mask properly at all.
+///
+/// The safety checker in the same repo is skipped — 608 MB whose only job is to
+/// censor, on a library of your own photos.
+///
+/// No tokenizer here on purpose. SD 1.5's text encoder is CLIP, and its
+/// vocabulary is byte-for-byte the one already downloaded for semantic search:
+/// 49,408 entries, same ids. Fetching a second copy would be waste.
+pub const GENERATE_FILES: &[ModelFile] = &[
+    ModelFile {
+        url: "https://huggingface.co/RanaLLC/stable-diffusion-v1-5-inpainting-onnx-fp16/resolve/main/text_encoder/model.onnx",
+        filename: "text_encoder.onnx",
+    },
+    ModelFile {
+        url: "https://huggingface.co/RanaLLC/stable-diffusion-v1-5-inpainting-onnx-fp16/resolve/main/vae_encoder/model.onnx",
+        filename: "vae_encoder.onnx",
+    },
+    ModelFile {
+        url: "https://huggingface.co/RanaLLC/stable-diffusion-v1-5-inpainting-onnx-fp16/resolve/main/vae_decoder/model.onnx",
+        filename: "vae_decoder.onnx",
+    },
+    // Last because it is the big one: an interrupted download leaves the three
+    // small files already in place.
+    ModelFile {
+        url: "https://huggingface.co/RanaLLC/stable-diffusion-v1-5-inpainting-onnx-fp16/resolve/main/unet/model.onnx",
+        filename: "unet.onnx",
+    },
+];
+
 pub fn clip_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("models").join("clip")
 }
@@ -101,6 +197,26 @@ pub fn nsfw_dir(app_data_dir: &Path) -> PathBuf {
 
 pub fn caption_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("models").join("caption")
+}
+
+pub fn upscale_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("models").join("upscale")
+}
+
+pub fn cutout_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("models").join("cutout")
+}
+
+pub fn segment_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("models").join("segment")
+}
+
+pub fn inpaint_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("models").join("inpaint")
+}
+
+pub fn generate_dir(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("models").join("generate")
 }
 
 fn models_ready(dir: &Path, files: &[ModelFile]) -> bool {
@@ -125,6 +241,28 @@ pub fn nsfw_models_ready(app_data_dir: &Path) -> bool {
 
 pub fn caption_models_ready(app_data_dir: &Path) -> bool {
     models_ready(&caption_dir(app_data_dir), CAPTION_FILES)
+}
+
+pub fn upscale_models_ready(app_data_dir: &Path) -> bool {
+    models_ready(&upscale_dir(app_data_dir), UPSCALE_FILES)
+}
+
+pub fn cutout_models_ready(app_data_dir: &Path) -> bool {
+    models_ready(&cutout_dir(app_data_dir), CUTOUT_FILES)
+}
+
+pub fn segment_models_ready(app_data_dir: &Path) -> bool {
+    models_ready(&segment_dir(app_data_dir), SEGMENT_FILES)
+}
+
+pub fn inpaint_models_ready(app_data_dir: &Path) -> bool {
+    models_ready(&inpaint_dir(app_data_dir), INPAINT_FILES)
+}
+
+/// Generation also needs CLIP, whose tokenizer it borrows.
+pub fn generate_models_ready(app_data_dir: &Path) -> bool {
+    models_ready(&generate_dir(app_data_dir), GENERATE_FILES)
+        && clip_dir(app_data_dir).join("tokenizer.json").is_file()
 }
 
 /// Downloads any files missing from `dir`, reporting (bytes_done, bytes_total) via `on_progress`.
@@ -197,5 +335,25 @@ pub async fn ensure_nsfw_models(app_data_dir: &Path, on_progress: impl FnMut(u64
 
 pub async fn ensure_caption_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
     ensure_models(&caption_dir(app_data_dir), CAPTION_FILES, on_progress).await
+}
+
+pub async fn ensure_upscale_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
+    ensure_models(&upscale_dir(app_data_dir), UPSCALE_FILES, on_progress).await
+}
+
+pub async fn ensure_cutout_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
+    ensure_models(&cutout_dir(app_data_dir), CUTOUT_FILES, on_progress).await
+}
+
+pub async fn ensure_segment_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
+    ensure_models(&segment_dir(app_data_dir), SEGMENT_FILES, on_progress).await
+}
+
+pub async fn ensure_inpaint_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
+    ensure_models(&inpaint_dir(app_data_dir), INPAINT_FILES, on_progress).await
+}
+
+pub async fn ensure_generate_models(app_data_dir: &Path, on_progress: impl FnMut(u64, u64)) -> anyhow::Result<()> {
+    ensure_models(&generate_dir(app_data_dir), GENERATE_FILES, on_progress).await
 }
 

@@ -43,6 +43,68 @@ fn write_setting(conn: &Connection, key: &str, value: &str) -> Result<(), String
     Ok(())
 }
 
+/* ------------------------------------------------------- graphics card -- */
+
+pub const SETTING_GPU: &str = "gpu_enabled";
+
+/// Reads the stored choice. Absent means **on**.
+///
+/// It was off for a while, after the graphics card took the whole app down
+/// repeatedly. The cause turned out to be two specific things — the wrong
+/// adapter, and two quantized models DirectML cannot run — both fixed rather
+/// than avoided. Every tool has since been run on the card and checked, and
+/// painting from a description is six times faster there, so the default is the
+/// fast one again. The switch stays, for the machine where it still misbehaves.
+pub fn gpu_enabled(conn: &Connection) -> bool {
+    read_setting(conn, SETTING_GPU).as_deref() != Some("false")
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GpuStatus {
+    /// Whether a usable graphics card was found at all.
+    pub available: bool,
+    /// Whether the user has switched it on.
+    pub enabled: bool,
+}
+
+#[tauri::command]
+pub fn get_gpu_status(state: State<'_, AppState>) -> Result<GpuStatus, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    Ok(GpuStatus {
+        available: crate::ai::session::gpu_available(),
+        enabled: gpu_enabled(&conn),
+    })
+}
+
+/// Switches the graphics card on or off, and drops every loaded model.
+///
+/// The drop matters: a session carries the provider it was built with for as
+/// long as it lives, so without this the setting would appear to do nothing
+/// until the app was restarted.
+#[tauri::command]
+pub fn set_gpu_enabled(state: State<'_, AppState>, enabled: bool) -> Result<(), String> {
+    {
+        let conn = state.conn.lock().map_err(|e| e.to_string())?;
+        write_setting(&conn, SETTING_GPU, if enabled { "true" } else { "false" })?;
+    }
+    crate::ai::session::set_gpu_enabled(enabled);
+
+    // Each slot holds a different type, so they are dropped one by one rather
+    // than in a loop. Best effort: a model mid-run keeps its provider until it
+    // finishes, which is fine — the next load picks up the new setting.
+    let ai = &state.ai;
+    macro_rules! drop_model {
+        ($($slot:ident),+) => {$(
+            if let Ok(mut guard) = ai.$slot.lock() {
+                *guard = None;
+            }
+        )+};
+    }
+    drop_model!(upscale, cutout, segment, inpaint, generate, encoded);
+    Ok(())
+}
+
 /* ---------------------------------------------------- sensitive content -- */
 
 /// Reads the policy, falling back to the defaults when nothing was ever set.
@@ -203,6 +265,18 @@ mod tests {
         )
         .unwrap();
         conn
+    }
+
+    #[test]
+    fn the_graphics_card_is_on_unless_it_was_turned_off() {
+        let conn = memory_db();
+        assert!(gpu_enabled(&conn), "an unset preference means on");
+
+        write_setting(&conn, SETTING_GPU, "false").unwrap();
+        assert!(!gpu_enabled(&conn), "turning it off has to stick");
+
+        write_setting(&conn, SETTING_GPU, "true").unwrap();
+        assert!(gpu_enabled(&conn));
     }
 
     #[test]
