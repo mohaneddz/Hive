@@ -23,7 +23,20 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_log::Builder::default().build())
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                // Default everything to Info; Trace/Debug from the whole
+                // dependency tree is what was flooding the console.
+                .level(tauri_plugin_log::log::LevelFilter::Info)
+                // The `notify` watcher logs one Trace line per filesystem
+                // event. Since it watches a dir that holds the log file, its
+                // own events retrigger it — a self-feeding spam loop.
+                .level_for("notify", tauri_plugin_log::log::LevelFilter::Warn)
+                // ONNX Runtime dumps a wall of INFO lines (graph fusions,
+                // arena reservations, etc.) every time a model loads.
+                .level_for("ort", tauri_plugin_log::log::LevelFilter::Warn)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
