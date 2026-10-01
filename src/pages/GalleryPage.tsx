@@ -10,8 +10,9 @@ import { MediaGrid } from "@/components/media/MediaGrid";
 import { YearScrubber } from "@/components/media/YearScrubber";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { PageError, PageSkeleton } from "@/components/ui/AsyncState";
 import { useMediaLibrary } from "@/hooks/useMediaLibrary";
-import { exportMedia, getTimeline, setTrashed } from "@/lib/tauri";
+import { exportMedia, getTimeline, isTauri, setTrashed } from "@/lib/tauri";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import type { MediaSort, TimelineBucket, TimelineGranularity } from "@/types/media";
 import { groupByDate } from "@/utils/dateGroups";
@@ -21,7 +22,7 @@ const DATE_SORTS: MediaSort[] = ["taken", "oldest"];
 const YEAR_SCRUB_ATTEMPTS = 25;
 
 export function GalleryPage() {
-  const { items, total, loading, jobs, folders, addFolder, cancelJob, loadPage, setItems } = useMediaLibrary();
+  const { items, total, loading, error, jobs, folders, addFolder, cancelJob, loadPage, setItems } = useMediaLibrary();
   const [searchParams, setSearchParams] = useSearchParams();
   const folderId = searchParams.get("folder") ?? undefined;
   const activeFolder = useMemo(() => folders.find((f) => f.id === folderId), [folders, folderId]);
@@ -66,7 +67,9 @@ export function GalleryPage() {
   useEffect(() => {
     // The scrubber jumps to a `data-year` section, which "Unspecified" has no
     // equivalent of — Gallery's own grouping calls those items "Unknown date".
-    void getTimeline("year").then((buckets) => setYearBuckets(buckets.filter((b) => /^\d+$/.test(b.key))));
+    if (isTauri()) {
+      void getTimeline("year").then((buckets) => setYearBuckets(buckets.filter((b) => /^\d+$/.test(b.key))));
+    }
   }, []);
 
   const chooseFolder = async () => {
@@ -161,9 +164,7 @@ export function GalleryPage() {
       kind: "warning",
     });
     if (!confirmed) return;
-    for (const mediaId of selected) {
-      await setTrashed(mediaId, true);
-    }
+    await Promise.all([...selected].map((mediaId) => setTrashed(mediaId, true)));
     setItems((prev) => prev.filter((item) => !selected.has(item.id)));
     setSelected(new Set());
     setSelecting(false);
@@ -255,7 +256,10 @@ export function GalleryPage() {
         </div>
       )}
 
-      {items.length === 0 && !loading && (
+      {error && <PageError message={error} onRetry={() => void loadPage(0, requestOptions)} />}
+      {loading && items.length === 0 && !error && <PageSkeleton cards={8} />}
+
+      {items.length === 0 && !loading && !error && (
         <EmptyState
           icon={<ImagePlus size={22} />}
           title="No media yet"

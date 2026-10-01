@@ -43,9 +43,35 @@ pub fn generate_for_image(
 ) -> anyhow::Result<bool> {
     let img = match image::open(source_path) {
         Ok(img) => img,
-        Err(e) => {
-            eprintln!("[thumbnails] failed to decode image {source_path:?}: {e}");
-            return Ok(false);
+        Err(native_error) => {
+            // HEIC/HEIF and camera RAW codecs are platform-dependent. When the
+            // Rust image stack cannot decode one, use the same optional ffmpeg
+            // dependency already supported for video thumbnails.
+            if !ffmpeg_available() {
+                eprintln!("[thumbnails] failed to decode image {source_path:?}: {native_error}");
+                return Ok(false);
+            }
+            let frame_path = std::env::temp_dir().join(format!("hive_image_{media_id}.png"));
+            let output = std::process::Command::new("ffmpeg")
+                .args(["-y", "-i"])
+                .arg(source_path)
+                .args(["-frames:v", "1"])
+                .arg(&frame_path)
+                .output();
+            let decoded = match output {
+                Ok(result) if result.status.success() && frame_path.is_file() => image::open(&frame_path),
+                Ok(result) => {
+                    eprintln!("[thumbnails] ffmpeg failed for {source_path:?}: {}", String::from_utf8_lossy(&result.stderr));
+                    let _ = std::fs::remove_file(&frame_path);
+                    return Ok(false);
+                }
+                Err(error) => {
+                    eprintln!("[thumbnails] could not run ffmpeg for {source_path:?}: {error}");
+                    return Ok(false);
+                }
+            };
+            let _ = std::fs::remove_file(&frame_path);
+            decoded?
         }
     };
     save_thumbnails(conn, app_data_dir, media_id, &img)?;

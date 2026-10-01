@@ -1,40 +1,56 @@
+import { lazy, Suspense, type ReactNode } from "react";
 import { createHashRouter } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
-import { AlbumDetailPage } from "@/pages/AlbumDetailPage";
-import { CollectionsPage } from "@/pages/CollectionsPage";
-import { EditorPage } from "@/pages/EditorPage";
-import { ExplorerPage } from "@/pages/ExplorerPage";
-import { GalleryPage } from "@/pages/GalleryPage";
-import { GallerySettingsPage } from "@/pages/GallerySettingsPage";
-import { HomePage } from "@/pages/HomePage";
-import { NotFoundPage } from "@/pages/NotFoundPage";
-import { PeoplePage } from "@/pages/PeoplePage";
-import { PlacesPage } from "@/pages/PlacesPage";
-import { SearchPage } from "@/pages/SearchPage";
-import { TrashPage } from "@/pages/TrashPage";
-import { UtilitiesPage } from "@/pages/UtilitiesPage";
-import { ViewerPage } from "@/pages/ViewerPage";
 import { routes } from "@/config/routes";
+
+const AlbumDetailPage = lazy(() => import("@/pages/AlbumDetailPage").then((m) => ({ default: m.AlbumDetailPage })));
+const CollectionsPage = lazy(() => import("@/pages/CollectionsPage").then((m) => ({ default: m.CollectionsPage })));
+const EditorPage = lazy(() => import("@/pages/EditorPage").then((m) => ({ default: m.EditorPage })));
+const ExplorerPage = lazy(() => import("@/pages/ExplorerPage").then((m) => ({ default: m.ExplorerPage })));
+const GalleryPage = lazy(() => import("@/pages/GalleryPage").then((m) => ({ default: m.GalleryPage })));
+const GallerySettingsPage = lazy(() => import("@/pages/GallerySettingsPage").then((m) => ({ default: m.GallerySettingsPage })));
+const HomePage = lazy(() => import("@/pages/HomePage").then((m) => ({ default: m.HomePage })));
+const NotFoundPage = lazy(() => import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })));
+const PeoplePage = lazy(() => import("@/pages/PeoplePage").then((m) => ({ default: m.PeoplePage })));
+const PlacesPage = lazy(() => import("@/pages/PlacesPage").then((m) => ({ default: m.PlacesPage })));
+const SearchPage = lazy(() => import("@/pages/SearchPage").then((m) => ({ default: m.SearchPage })));
+const TrashPage = lazy(() => import("@/pages/TrashPage").then((m) => ({ default: m.TrashPage })));
+const UtilitiesPage = lazy(() => import("@/pages/UtilitiesPage").then((m) => ({ default: m.UtilitiesPage })));
+const ViewerPage = lazy(() => import("@/pages/ViewerPage").then((m) => ({ default: m.ViewerPage })));
+
+function page(element: ReactNode) {
+  return (
+    <Suspense
+      fallback={
+        <div className="grid min-h-[45vh] place-items-center text-sm font-semibold text-ink-muted">
+          Loading view…
+        </div>
+      }
+    >
+      {element}
+    </Suspense>
+  );
+}
 
 export const router = createHashRouter([
   {
     element: <AppShell />,
     children: [
-      { index: true, element: <HomePage /> },
-      { path: routes.gallery.path, element: <GalleryPage /> },
-      { path: routes.collections.path, element: <CollectionsPage /> },
-      { path: routes.people.path, element: <PeoplePage /> },
-      { path: routes.places.path, element: <PlacesPage /> },
-      { path: routes.explorer.path, element: <ExplorerPage /> },
-      { path: routes.search.path, element: <SearchPage /> },
-      { path: routes.utilities.path, element: <UtilitiesPage /> },
-      { path: routes.trash.path, element: <TrashPage /> },
-      { path: "/albums/:id", element: <AlbumDetailPage /> },
-      { path: "/media/:id", element: <ViewerPage /> },
-      { path: "/media/:id/edit", element: <EditorPage /> },
-      { path: routes.settings.path, element: <GallerySettingsPage /> },
-      { path: "*", element: <NotFoundPage /> },
+      { index: true, element: page(<HomePage />) },
+      { path: routes.gallery.path, element: page(<GalleryPage />) },
+      { path: routes.collections.path, element: page(<CollectionsPage />) },
+      { path: routes.people.path, element: page(<PeoplePage />) },
+      { path: routes.places.path, element: page(<PlacesPage />) },
+      { path: routes.explorer.path, element: page(<ExplorerPage />) },
+      { path: routes.search.path, element: page(<SearchPage />) },
+      { path: routes.utilities.path, element: page(<UtilitiesPage />) },
+      { path: routes.trash.path, element: page(<TrashPage />) },
+      { path: "/albums/:id", element: page(<AlbumDetailPage />) },
+      { path: "/media/:id", element: page(<ViewerPage />) },
+      { path: "/media/:id/edit", element: page(<EditorPage />) },
+      { path: routes.settings.path, element: page(<GallerySettingsPage />) },
+      { path: "*", element: page(<NotFoundPage />) },
     ],
   },
 ]);

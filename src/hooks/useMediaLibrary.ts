@@ -12,11 +12,16 @@ export function useMediaLibrary() {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const jobs = useJobProgress();
 
   const refreshFolders = useCallback(async () => {
     if (!api.isTauri()) return;
-    setFolders(await api.listFolders());
+    try {
+      setFolders(await api.listFolders());
+    } catch (cause) {
+      setError(String(cause));
+    }
   }, []);
 
   const loadPage = useCallback(
@@ -26,6 +31,7 @@ export function useMediaLibrary() {
     ) => {
       if (!api.isTauri()) return;
       setLoading(true);
+      setError(null);
       try {
         const page = await api.getMediaPage({
           limit: PAGE_SIZE,
@@ -37,6 +43,8 @@ export function useMediaLibrary() {
         });
         setItems((prev) => (offset === 0 ? page.items : [...prev, ...page.items]));
         setTotal(page.total);
+      } catch (cause) {
+        setError(String(cause));
       } finally {
         setLoading(false);
       }
@@ -98,6 +106,7 @@ export function useMediaLibrary() {
     setItems,
     total,
     loading,
+    error,
     jobs,
     addFolder,
     removeFolder,

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { Card } from "@/components/ui/Card";
+import { PageError, PageSkeleton } from "@/components/ui/AsyncState";
 import { MediaGrid } from "@/components/media/MediaGrid";
 import { MediaThumb } from "@/components/media/MediaThumb";
 import {
@@ -140,6 +141,18 @@ function MiniMap({
             ))}
             <line x1={0} y1={90} x2={360} y2={90} stroke="currentColor" strokeWidth={0.7} className="text-ink-muted/45" />
 
+            {/* Lightweight offline land silhouettes provide geographic context
+                without fetching tiles or sending photo coordinates anywhere. */}
+            <g className="fill-ink/[.09] stroke-ink/20" strokeWidth={0.45}>
+              <path d="M18 48 29 34 48 28 66 33 77 43 70 52 80 59 70 70 59 72 52 83 43 80 38 68 25 62Z" />
+              <path d="M76 81 88 86 96 103 93 121 86 142 78 151 73 133 68 112 70 94Z" />
+              <path d="M94 25 109 19 120 27 116 40 102 43 92 35Z" />
+              <path d="M166 48 177 38 197 37 209 42 224 39 246 45 267 43 288 52 310 55 330 68 319 77 298 75 284 82 267 76 250 84 232 77 214 82 202 72 186 69 174 60Z" />
+              <path d="M177 70 194 72 207 84 204 105 194 126 182 132 171 112 166 91Z" />
+              <path d="M292 119 306 111 324 116 333 128 323 140 305 143 291 134Z" />
+              <path d="M211 136 216 142 213 154 208 146Z" />
+            </g>
+
             {places.map((place) => {
               const x = place.lon + 180;
               const y = 90 - place.lat;
@@ -213,6 +226,7 @@ export function PlacesPage() {
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const [geocoding, setGeocoding] = useState(false);
   const [naming, setNaming] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
 
   const nameKey = (lat: number, lon: number) => `${lat.toFixed(2)},${lon.toFixed(2)}`;
   const nameFor = (place: PlaceGroup) => names.get(nameKey(place.lat, place.lon));
@@ -241,10 +255,16 @@ export function PlacesPage() {
   };
 
   const load = useCallback(async () => {
-    if (!isTauri()) return;
+    if (!isTauri()) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setFailure(null);
     try {
       setPlaces(await listPlaces(precision));
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setLoading(false);
     }
@@ -326,10 +346,12 @@ export function PlacesPage() {
         }
       />
 
-      {loading && places.length === 0 ? (
-        <div className="mt-12 text-center text-sm text-ink-muted">Loading…</div>
+      {failure && <PageError message={failure} onRetry={() => void load()} />}
+
+      {loading && places.length === 0 && !failure ? (
+        <PageSkeleton cards={4} />
       ) : (
-        <MiniMap places={places} activeId={null} onSelect={openPlace} />
+        !failure && <MiniMap places={places} activeId={null} onSelect={openPlace} />
       )}
 
       {!loading && places.length === 0 && (

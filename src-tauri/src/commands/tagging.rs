@@ -254,6 +254,7 @@ pub fn list_media_by_tag(
 /// `backfill_embeddings` / `backfill_ocr` / `backfill_faces`.
 #[tauri::command]
 pub async fn backfill_tags(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.ai.touch();
     // Ensure CLIP is loaded.
     {
         let mut guard = state.ai.clip.lock().unwrap();

@@ -556,6 +556,27 @@ export function createSmartAlbum(
   return invoke("create_smart_album", { name, rules, matchType });
 }
 
+export function unloadAiModels(): Promise<number> {
+  return invoke("unload_ai_models");
+}
+
+export function reassignPersonMedia(
+  sourceId: string,
+  targetId: string | null,
+  mediaIds: string[],
+): Promise<void> {
+  return invoke("reassign_person_media", { sourceId, targetId, mediaIds });
+}
+
+export function updateSmartAlbum(
+  albumId: string,
+  name: string,
+  rules: SmartAlbumRule[],
+  matchType: SmartAlbumMatch,
+): Promise<SmartAlbum> {
+  return invoke("update_smart_album", { albumId, name, rules, matchType });
+}
+
 export function listSmartAlbums(): Promise<SmartAlbum[]> {
   return invoke("list_smart_albums");
 }
@@ -569,6 +590,10 @@ export function getSmartAlbumMedia(
 
 export function deleteSmartAlbum(albumId: string): Promise<void> {
   return invoke("delete_smart_album", { albumId });
+}
+
+export function setSmartAlbumCover(albumId: string, mediaId: string): Promise<void> {
+  return invoke("set_smart_album_cover", { albumId, mediaId });
 }
 
 export function suggestSmartAlbums(): Promise<SmartAlbumSuggestion[]> {

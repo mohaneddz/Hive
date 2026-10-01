@@ -7,7 +7,7 @@ import { MediaCard } from "@/components/media/MediaCard";
 import { SavedSearchesPanel, type SavedSearch } from "@/components/search/SavedSearches";
 import { useAiStatus } from "@/hooks/useAiStatus";
 import { useClickOutside } from "@/hooks/useClickOutside";
-import { getMediaPage, listPeople, getPersonMedia, searchMedia, semanticSearch } from "@/lib/tauri";
+import { getMediaPage, isTauri, listPeople, getPersonMedia, searchMedia, semanticSearch } from "@/lib/tauri";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import type { MediaItem, MediaType, PersonSummary } from "@/types/media";
 import { cn } from "@/utils/cn";
@@ -53,6 +53,8 @@ export function SearchPage() {
   const [mode, setMode] = useState<"exact" | "semantic">("exact");
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
   const { status: aiStatus } = useAiStatus();
 
   const [dateOpen, setDateOpen] = useState(false);
@@ -74,9 +76,21 @@ export function SearchPage() {
   }, [searchParams]);
 
   useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedQuery(query), 300);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
+
+  useEffect(() => {
     let cancelled = false;
+    if (!isTauri()) {
+      setItems([]);
+      setLoading(false);
+      setFailure(null);
+      return;
+    }
     setLoading(true);
-    const trimmed = query.trim();
+    setFailure(null);
+    const trimmed = debouncedQuery.trim();
 
     const request = !trimmed
       ? getMediaPage({
@@ -93,20 +107,26 @@ export function SearchPage() {
       .then((results) => {
         if (!cancelled) setItems(results);
       })
+      .catch((cause) => {
+        if (!cancelled) {
+          setItems([]);
+          setFailure(String(cause));
+        }
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [query, mediaType, favoritesOnly, mode, aiStatus?.modelsReady]);
+  }, [debouncedQuery, mediaType, favoritesOnly, mode, aiStatus?.modelsReady]);
 
   useEffect(() => {
-    if (aiStatus?.peopleCount) void listPeople().then(setPeople);
+    if (isTauri() && aiStatus?.peopleCount) void listPeople().then(setPeople);
   }, [aiStatus?.peopleCount]);
 
   useEffect(() => {
-    if (personId === "all") {
+    if (personId === "all" || !isTauri()) {
       setPersonMediaIds(null);
       return;
     }
@@ -186,8 +206,8 @@ export function SearchPage() {
   };
 
   return (
-    <div className="grid grid-cols-[1fr_320px] gap-6">
-      <div>
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-w-0">
       <GalleryPageHeader
         eyebrow="Search"
         title="Find anything in your library."
@@ -362,7 +382,12 @@ export function SearchPage() {
         </div>
       )}
 
-      {loading ? (
+      {failure ? (
+        <div className="mt-6 rounded-2xl border border-red-500/25 bg-red-500/5 p-4 text-sm text-red-600">
+          <p className="font-extrabold">Search failed</p>
+          <p className="mt-1 break-words text-xs opacity-90">{failure}</p>
+        </div>
+      ) : loading ? (
         <div className="mt-12 text-center text-sm text-ink-muted">Searching…</div>
       ) : (
         <>
@@ -382,7 +407,7 @@ export function SearchPage() {
             </select>
           </div>
 
-          <div className="mt-3 grid grid-cols-4 gap-4">
+          <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-4">
             {visible.map((item) => (
               <MediaCard key={item.id} item={item} />
             ))}
@@ -396,7 +421,7 @@ export function SearchPage() {
       )}
       </div>
 
-      <div className="sticky top-0 flex h-[calc(100vh-120px)] flex-col gap-4">
+      <div className="flex min-h-[420px] flex-col gap-4 xl:sticky xl:top-0 xl:h-[calc(100vh-120px)]">
         <SavedSearchesPanel
           current={query.trim() ? { query: query.trim(), mode } : null}
           onApply={applySavedSearch}

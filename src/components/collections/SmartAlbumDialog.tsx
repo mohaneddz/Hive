@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Wand2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
-import { createSmartAlbum, listPeople } from "@/lib/tauri";
+import { createSmartAlbum, listPeople, updateSmartAlbum } from "@/lib/tauri";
 import type {
   PersonSummary,
   SmartAlbum,
@@ -140,17 +140,26 @@ function blankRule(kind: SmartAlbumRuleKind): SmartAlbumRule {
  */
 export function SmartAlbumDialog({
   onClose,
-  onCreated,
+  onSaved,
+  initialAlbum,
 }: {
   onClose: () => void;
-  onCreated: (album: SmartAlbum) => void;
+  onSaved: (album: SmartAlbum) => void;
+  initialAlbum?: SmartAlbum | null;
 }) {
-  const [name, setName] = useState("");
-  const [matchType, setMatchType] = useState<SmartAlbumMatch>("all");
-  const [rules, setRules] = useState<SmartAlbumRule[]>([blankRule("tag")]);
+  const [name, setName] = useState(initialAlbum?.name ?? "");
+  const [matchType, setMatchType] = useState<SmartAlbumMatch>(initialAlbum?.matchType ?? "all");
+  const [rules, setRules] = useState<SmartAlbumRule[]>(initialAlbum?.rules ?? [blankRule("tag")]);
   const [people, setPeople] = useState<PersonSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const duplicateRule = rules.some((rule, index) =>
+    rules.findIndex((candidate) =>
+      candidate.kind === rule.kind &&
+      candidate.operator === rule.operator &&
+      candidate.value.trim().toLowerCase() === rule.value.trim().toLowerCase()
+    ) !== index,
+  );
 
   useEffect(() => {
     void listPeople()
@@ -177,10 +186,17 @@ export function SmartAlbumDialog({
   const submit = async () => {
     const albumName = name.trim();
     if (!albumName) return;
+    if (duplicateRule) {
+      setFailure("Remove the duplicate rule before saving.");
+      return;
+    }
     setBusy(true);
     setFailure(null);
     try {
-      onCreated(await createSmartAlbum(albumName, rules, matchType));
+      const saved = initialAlbum
+        ? await updateSmartAlbum(initialAlbum.id, albumName, rules, matchType)
+        : await createSmartAlbum(albumName, rules, matchType);
+      onSaved(saved);
       onClose();
     } catch (cause) {
       // The backend refuses rules it cannot translate, so its message is the
@@ -203,7 +219,9 @@ export function SmartAlbumDialog({
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="eyebrow">Collections</p>
-            <h2 className="mt-1.5 text-lg font-extrabold text-ink">New smart album</h2>
+            <h2 className="mt-1.5 text-lg font-extrabold text-ink">
+              {initialAlbum ? "Edit smart album" : "New smart album"}
+            </h2>
             <p className="mt-0.5 text-xs text-ink-muted">
               Saves the rules, not the photos — it keeps itself up to date.
             </p>
@@ -361,6 +379,12 @@ export function SmartAlbumDialog({
           <Plus size={13} /> Add rule
         </button>
 
+        <p className="mt-3 rounded-xl bg-cream/45 px-3 py-2 text-[11px] text-ink-muted">
+          {initialAlbum
+            ? `Currently ${initialAlbum.itemCount} matching item${initialAlbum.itemCount === 1 ? "" : "s"}. Saving recalculates the album immediately.`
+            : "Hive evaluates these rules when you save, then keeps the album updated as the library changes."}
+        </p>
+
         {failure && (
           <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-600">
             {failure}
@@ -373,10 +397,10 @@ export function SmartAlbumDialog({
           </Button>
           <Button
             onClick={submit}
-            disabled={busy || !name.trim()}
+            disabled={busy || !name.trim() || duplicateRule}
             icon={<Wand2 size={15} />}
           >
-            Create
+            {initialAlbum ? "Save changes" : "Create"}
           </Button>
         </div>
       </div>

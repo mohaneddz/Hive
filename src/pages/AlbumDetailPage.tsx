@@ -5,6 +5,7 @@ import { ArrowLeft, Download, Image, Layers, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { PageError, PageSkeleton } from "@/components/ui/AsyncState";
 import { MediaGrid } from "@/components/media/MediaGrid";
 import {
   BestPhotoButton,
@@ -31,13 +32,23 @@ export function AlbumDetailPage() {
   const [album, setAlbum] = useState<Album | null>(null);
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [failure, setFailure] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selecting, setSelecting] = useState(false);
   const best = useBestPhoto();
 
   const load = useCallback(async () => {
-    if (!id || !isTauri()) return;
+    if (!id) {
+      setFailure("This album address is incomplete.");
+      setLoading(false);
+      return;
+    }
+    if (!isTauri()) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setFailure(null);
     try {
       const [albumDetail, page] = await Promise.all([
         getAlbum(id),
@@ -45,6 +56,8 @@ export function AlbumDetailPage() {
       ]);
       setAlbum(albumDetail);
       setItems(page.items);
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setLoading(false);
     }
@@ -77,9 +90,7 @@ export function AlbumDetailPage() {
     );
     if (!confirmed) return;
 
-    for (const mediaId of selected) {
-      await removeMediaFromAlbum(id, mediaId);
-    }
+    await Promise.all([...selected].map((mediaId) => removeMediaFromAlbum(id, mediaId)));
     setItems((prev) => prev.filter((item) => !selected.has(item.id)));
     setSelected(new Set());
     setSelecting(false);
@@ -141,8 +152,12 @@ export function AlbumDetailPage() {
     setAlbum((prev) => (prev ? { ...prev, coverMediaId: mediaId } : prev));
   };
 
+  if (failure && !album) {
+    return <PageError message={failure} onRetry={() => void load()} />;
+  }
+
   if (loading && !album) {
-    return <div className="grid h-full place-items-center text-sm text-ink-muted">Loading…</div>;
+    return <PageSkeleton />;
   }
 
   if (!album) {

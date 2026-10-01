@@ -10,16 +10,19 @@ import {
   Info,
   RotateCcw,
   RotateCw,
+  Redo2,
   Save,
   Sliders,
   Tag,
   Wand2,
+  Undo2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
+import { PageError, PageSkeleton } from "@/components/ui/AsyncState";
 import { EditorCanvas } from "@/components/editor/EditorCanvas";
 import { SaveEditDialog } from "@/components/editor/SaveEditDialog";
-import { applyEdits, getMediaDetail, readMediaUrl, updateMediaMetadata } from "@/lib/tauri";
+import { applyEdits, getMediaDetail, isTauri, readMediaUrl, updateMediaMetadata } from "@/lib/tauri";
 import {
   FILTER_PRESETS,
   NEUTRAL_EDIT_OPS,
@@ -79,31 +82,73 @@ export function EditorPage() {
   const [item, setItem] = useState<MediaItem | null>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [ops, setOps] = useState<EditOps>(NEUTRAL_EDIT_OPS);
+  const [past, setPast] = useState<EditOps[]>([]);
+  const [future, setFuture] = useState<EditOps[]>([]);
   const [tab, setTab] = useState<Tab>("filters");
   const [askingSave, setAskingSave] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [takenAtOverride, setTakenAtOverride] = useState("");
-  const [savingMetadata, setSavingMetadata] = useState(false);
 
   // Crop dragging, in fractions of the displayed frame.
   const stageRef = useRef<HTMLDivElement>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [resizeStart, setResizeStart] = useState<{
+    handle: "nw" | "ne" | "sw" | "se";
+    crop: CropRect;
+  } | null>(null);
+
+  const commitOps = (updater: EditOps | ((current: EditOps) => EditOps)) => {
+    const next = typeof updater === "function" ? updater(ops) : updater;
+    if (JSON.stringify(next) === JSON.stringify(ops)) return;
+    setPast((history) => [...history, ops].slice(-50));
+    setFuture([]);
+    setOps(next);
+  };
+
+  const undo = () => {
+    const previous = past[past.length - 1];
+    if (!previous) return;
+    setPast((history) => history.slice(0, -1));
+    setFuture((history) => [ops, ...history].slice(0, 50));
+    setOps(previous);
+  };
+
+  const redo = () => {
+    const next = future[0];
+    if (!next) return;
+    setFuture((history) => history.slice(1));
+    setPast((history) => [...history, ops].slice(-50));
+    setOps(next);
+  };
 
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      setFailure("This editor address is incomplete.");
+      return;
+    }
+    if (!isTauri()) {
+      setFailure("The editor needs the desktop app to read and save local media.");
+      return;
+    }
     let cancelled = false;
     let objectUrl: string | null = null;
 
-    void getMediaDetail(id).then((detail) => {
-      if (cancelled) return;
-      setItem(detail);
-      setTitle(detail.title ?? "");
-      setDescription(detail.description ?? "");
-      setTakenAtOverride(detail.takenAtOverride?.slice(0, 10) ?? "");
-    });
+    setFailure(null);
+    void getMediaDetail(id)
+      .then((detail) => {
+        if (cancelled) return;
+        setItem(detail);
+        setTitle(detail.title ?? "");
+        setDescription(detail.description ?? "");
+        setTakenAtOverride(detail.takenAtOverride?.slice(0, 10) ?? "");
+      })
+      .catch((cause) => {
+        if (!cancelled) setFailure(String(cause));
+      });
 
     // The 800px render is what the editor works against: a 50-megapixel original
     // would cost a hundred times more for a preview you cannot see the difference in.
@@ -120,7 +165,9 @@ export function EditorPage() {
         };
         element.src = url;
       })
-      .catch(() => {});
+      .catch((cause) => {
+        if (!cancelled) setFailure(String(cause));
+      });
 
     return () => {
       cancelled = true;
@@ -131,14 +178,14 @@ export function EditorPage() {
   // Rotating re-frames the picture, so a crop drawn on the old orientation no
   // longer means what it did.
   const rotate = (degrees: number) =>
-    setOps((prev) => ({ ...prev, rotation: (prev.rotation + degrees + 360) % 360, crop: null }));
+    commitOps((prev) => ({ ...prev, rotation: (prev.rotation + degrees + 360) % 360, crop: null }));
 
   const quarterTurned = ops.rotation === 90 || ops.rotation === 270;
   const naturalRatio = image ? image.naturalWidth / image.naturalHeight : 1;
   const frameRatio = quarterTurned ? 1 / naturalRatio : naturalRatio;
 
   const applyPreset = (ratio: number | null) =>
-    setOps((prev) => ({ ...prev, crop: centredCrop(ratio, frameRatio) }));
+    commitOps((prev) => ({ ...prev, crop: centredCrop(ratio, frameRatio) }));
 
   /* ------------------------------------------------------- crop by mouse -- */
 
@@ -156,11 +203,35 @@ export function EditorPage() {
     if (tab !== "crop") return;
     const point = pointFromEvent(event);
     if (!point) return;
+    setPast((history) => [...history, ops].slice(-50));
+    setFuture([]);
     setDragStart(point);
     setOps((prev) => ({ ...prev, crop: { x: point.x, y: point.y, width: 0, height: 0 } }));
   };
 
   const extendCrop = (event: React.MouseEvent) => {
+    if (resizeStart) {
+      const point = pointFromEvent(event);
+      if (!point) return;
+      const { crop, handle } = resizeStart;
+      const right = crop.x + crop.width;
+      const bottom = crop.y + crop.height;
+      const minSize = 0.02;
+      const left = handle.includes("w") ? Math.min(right - minSize, point.x) : crop.x;
+      const top = handle.includes("n") ? Math.min(bottom - minSize, point.y) : crop.y;
+      const nextRight = handle.includes("e") ? Math.max(crop.x + minSize, point.x) : right;
+      const nextBottom = handle.includes("s") ? Math.max(crop.y + minSize, point.y) : bottom;
+      setOps((prev) => ({
+        ...prev,
+        crop: {
+          x: Math.max(0, left),
+          y: Math.max(0, top),
+          width: Math.min(1, nextRight) - Math.max(0, left),
+          height: Math.min(1, nextBottom) - Math.max(0, top),
+        },
+      }));
+      return;
+    }
     if (!dragStart) return;
     const point = pointFromEvent(event);
     if (!point) return;
@@ -176,6 +247,10 @@ export function EditorPage() {
   };
 
   const endCrop = () => {
+    if (resizeStart) {
+      setResizeStart(null);
+      return;
+    }
     if (!dragStart) return;
     setDragStart(null);
     // A stray click should not leave a sliver of a crop behind.
@@ -193,6 +268,12 @@ export function EditorPage() {
     setSaving(true);
     try {
       const result = await applyEdits(id, ops, mode);
+      await updateMediaMetadata(
+        result.id,
+        title.trim() || null,
+        description.trim() || null,
+        takenAtOverride ? new Date(takenAtOverride).toISOString() : null,
+      );
       setAskingSave(false);
       navigate(`/media/${result.id}`);
     } catch (cause) {
@@ -202,25 +283,83 @@ export function EditorPage() {
     }
   };
 
-  const saveMetadata = async () => {
+  const saveMetadataOnly = async () => {
     if (!id) return;
-    setSavingMetadata(true);
+    setSaving(true);
     try {
-      setItem(
-        await updateMediaMetadata(
-          id,
-          title || null,
-          description || null,
-          takenAtOverride ? new Date(takenAtOverride).toISOString() : null,
-        ),
+      await updateMediaMetadata(
+        id,
+        title.trim() || null,
+        description.trim() || null,
+        takenAtOverride ? new Date(takenAtOverride).toISOString() : null,
       );
+      navigate(`/media/${id}`);
+    } catch (cause) {
+      await confirm(String(cause), { title: "Could not save details", kind: "error" });
     } finally {
-      setSavingMetadata(false);
+      setSaving(false);
     }
   };
 
+  const beginResize = (event: React.MouseEvent, handle: "nw" | "ne" | "sw" | "se") => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!ops.crop) return;
+    setPast((history) => [...history, ops].slice(-50));
+    setFuture([]);
+    setResizeStart({ handle, crop: ops.crop });
+  };
+
+  const metadataDirty = Boolean(item) && (
+    title.trim() !== (item?.title ?? "") ||
+    description.trim() !== (item?.description ?? "") ||
+    takenAtOverride !== (item?.takenAtOverride?.slice(0, 10) ?? "")
+  );
+
+  const requestSave = () => {
+    if (isNeutral(ops)) void saveMetadataOnly();
+    else setAskingSave(true);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        redo();
+        return;
+      }
+      if (tab !== "crop" || !ops.crop || !event.key.startsWith("Arrow")) return;
+      event.preventDefault();
+      const step = event.shiftKey ? 0.02 : 0.005;
+      const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+      const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+      commitOps((current) => current.crop ? {
+        ...current,
+        crop: {
+          ...current.crop,
+          x: Math.max(0, Math.min(1 - current.crop.width, current.crop.x + dx)),
+          y: Math.max(0, Math.min(1 - current.crop.height, current.crop.y + dy)),
+        },
+      } : current);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
   if (!item) {
-    return <div className="grid h-full place-items-center text-sm text-ink-muted">Loading…</div>;
+    return failure ? (
+      <PageError message={failure} onRetry={() => navigate(-1)} label="Go back" />
+    ) : (
+      <PageSkeleton />
+    );
   }
 
   return (
@@ -235,14 +374,32 @@ export function EditorPage() {
         <p className="min-w-0 truncate text-sm font-bold">{item.filename}</p>
         <div className="flex shrink-0 items-center gap-2">
           <button
-            onClick={() => setOps(NEUTRAL_EDIT_OPS)}
+            onClick={undo}
+            disabled={past.length === 0}
+            className="grid size-10 place-items-center rounded-xl bg-white/10 text-white transition hover:bg-white/20 disabled:opacity-35"
+            aria-label="Undo"
+            title="Undo"
+          >
+            <Undo2 size={15} />
+          </button>
+          <button
+            onClick={redo}
+            disabled={future.length === 0}
+            className="grid size-10 place-items-center rounded-xl bg-white/10 text-white transition hover:bg-white/20 disabled:opacity-35"
+            aria-label="Redo"
+            title="Redo"
+          >
+            <Redo2 size={15} />
+          </button>
+          <button
+            onClick={() => commitOps(NEUTRAL_EDIT_OPS)}
             disabled={isNeutral(ops)}
             className="inline-flex h-10 items-center gap-2 rounded-xl bg-white/10 px-4 text-sm font-bold text-white transition hover:bg-white/20 disabled:opacity-40"
           >
             <RotateCcw size={15} /> Reset
           </button>
-          <Button icon={<Save size={15} />} onClick={() => setAskingSave(true)} disabled={isNeutral(ops)}>
-            Save…
+          <Button icon={<Save size={15} />} onClick={requestSave} disabled={saving || (isNeutral(ops) && !metadataDirty)}>
+            {saving ? "Saving…" : isNeutral(ops) ? "Save details" : "Save…"}
           </Button>
         </div>
       </div>
@@ -276,7 +433,21 @@ export function EditorPage() {
                   // you can still see what you are cutting away.
                   boxShadow: "0 0 0 9999px rgba(0,0,0,0.6)",
                 }}
-              />
+              >
+                {(["nw", "ne", "sw", "se"] as const).map((handle) => (
+                  <button
+                    key={handle}
+                    type="button"
+                    onMouseDown={(event) => beginResize(event, handle)}
+                    className={cn(
+                      "pointer-events-auto absolute size-3 rounded-sm border-2 border-black/60 bg-honey shadow",
+                      handle.includes("n") ? "-top-2" : "-bottom-2",
+                      handle.includes("w") ? "-left-2" : "-right-2",
+                    )}
+                    aria-label={`Resize crop from ${handle}`}
+                  />
+                ))}
+              </div>
             )}
           </div>
           {tab === "crop" && !ops.crop && (
@@ -316,7 +487,7 @@ export function EditorPage() {
                   <button
                     key={preset.name}
                     onClick={() =>
-                      setOps((prev) => ({
+                      commitOps((prev) => ({
                         // A preset is a look, not a reset: framing is preserved.
                         ...prev,
                         brightness: 1,
@@ -357,13 +528,13 @@ export function EditorPage() {
                     {
                       icon: FlipHorizontal,
                       label: "Flip horizontal",
-                      onClick: () => setOps((p) => ({ ...p, flipHorizontal: !p.flipHorizontal })),
+                      onClick: () => commitOps((p) => ({ ...p, flipHorizontal: !p.flipHorizontal })),
                       active: ops.flipHorizontal,
                     },
                     {
                       icon: FlipVertical,
                       label: "Flip vertical",
-                      onClick: () => setOps((p) => ({ ...p, flipVertical: !p.flipVertical })),
+                      onClick: () => commitOps((p) => ({ ...p, flipVertical: !p.flipVertical })),
                       active: ops.flipVertical,
                     },
                   ].map((button) => (
@@ -409,10 +580,10 @@ export function EditorPage() {
                         step={0.01}
                         value={value}
                         onChange={(event) =>
-                          setOps((prev) => ({ ...prev, [slider.key]: Number(event.target.value) }))
+                          commitOps((prev) => ({ ...prev, [slider.key]: Number(event.target.value) }))
                         }
                         onDoubleClick={() =>
-                          setOps((prev) => ({ ...prev, [slider.key]: slider.neutral }))
+                          commitOps((prev) => ({ ...prev, [slider.key]: slider.neutral }))
                         }
                         className="w-full accent-[var(--color-honey)]"
                       />
@@ -473,7 +644,7 @@ export function EditorPage() {
                         step={0.01}
                         value={ops.crop?.[key] ?? 0}
                         onChange={(event) =>
-                          setOps((prev) =>
+                          commitOps((prev) =>
                             prev.crop
                               ? { ...prev, crop: { ...prev.crop, [key]: Number(event.target.value) } }
                               : prev,
@@ -484,7 +655,7 @@ export function EditorPage() {
                     </label>
                   ))}
                   <button
-                    onClick={() => setOps((prev) => ({ ...prev, crop: null }))}
+                    onClick={() => commitOps((prev) => ({ ...prev, crop: null }))}
                     className="text-[11px] font-bold text-honey-deep underline-offset-2 hover:underline"
                   >
                     Clear the crop
@@ -539,20 +710,12 @@ export function EditorPage() {
                 </span>
               </label>
 
-              <Button
-                className="w-full"
-                icon={savingMetadata ? undefined : <Check size={15} />}
-                onClick={saveMetadata}
-                disabled={savingMetadata}
-              >
-                {savingMetadata ? "Saving…" : "Save details"}
-              </Button>
-
               <p className="flex items-start gap-2 rounded-2xl border border-ink/[.08] bg-canvas p-3 text-[10px] leading-relaxed text-ink-muted">
-                <Info size={13} className="mt-0.5 shrink-0" />
+                {metadataDirty ? <Check size={13} className="mt-0.5 shrink-0 text-honey-deep" /> : <Info size={13} className="mt-0.5 shrink-0" />}
                 <span>
-                  These are stored by Hive, not written into the photo file — so nothing is
-                  re-encoded and your original stays byte-for-byte intact.
+                  {metadataDirty
+                    ? "Your detail changes are ready. The main Save button saves them together with any visual edits."
+                    : "These details are stored by Hive, not written into the photo file, so your original metadata remains untouched."}
                 </span>
               </p>
             </div>

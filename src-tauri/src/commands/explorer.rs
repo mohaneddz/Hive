@@ -57,7 +57,7 @@ pub fn list_drives(state: State<'_, AppState>) -> Result<Vec<ExplorerEntry>, Str
 }
 
 /// Lists one directory: sub-directories first, then how many supported media
-/// files sit directly inside, and how many of those Hive has already indexed.
+/// files each contains recursively, and how many Hive has already indexed.
 #[tauri::command]
 pub fn list_directory(
     state: State<'_, AppState>,
@@ -138,16 +138,18 @@ pub fn list_directory(
     Ok(entries)
 }
 
-/// Counts supported files one level deep only. A recursive count would stall the
-/// browser on folders like C:\ that hold hundreds of thousands of files.
+/// Counts supported files below a folder with deliberate depth and entry caps.
+/// This catches ordinary nested photo trees without letting an Explorer visit to
+/// a drive root walk the whole machine synchronously.
 fn count_media_in(dir: &Path) -> i64 {
-    let Ok(readable) = std::fs::read_dir(dir) else {
-        return 0;
-    };
-    readable
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.path().is_file())
-        .filter(|entry| indexing::is_supported_media(&entry.path()).is_some())
+    walkdir::WalkDir::new(dir)
+        .follow_links(false)
+        .max_depth(8)
+        .into_iter()
+        .take(5_001)
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| indexing::is_supported_media(entry.path()).is_some())
         .count() as i64
 }
 

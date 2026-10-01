@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { PageError, PageSkeleton } from "@/components/ui/AsyncState";
 import { DuplicatesPanel } from "@/components/duplicates/DuplicatesPanel";
 import { BackupPanel } from "@/components/utilities/BackupPanel";
 import { BatchPanel } from "@/components/utilities/BatchPanel";
@@ -82,10 +83,24 @@ export function UtilitiesPage() {
   const [storage, setStorage] = useState<StorageStats | null>(null);
   const [health, setHealth] = useState<LibraryHealth | null>(null);
   const [busy, setBusy] = useState(false);
+  const [storageLoading, setStorageLoading] = useState(true);
+  const [failure, setFailure] = useState<string | null>(null);
 
   const loadStorage = useCallback(async () => {
-    if (!isTauri()) return;
-    setStorage(await getStorageStats());
+    if (!isTauri()) {
+      setStorage({ totalItems: 0, imageCount: 0, videoCount: 0, originalBytes: 0, thumbnailBytes: 0, databaseBytes: 0, byFolder: [] });
+      setStorageLoading(false);
+      return;
+    }
+    setStorageLoading(true);
+    setFailure(null);
+    try {
+      setStorage(await getStorageStats());
+    } catch (cause) {
+      setFailure(String(cause));
+    } finally {
+      setStorageLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -184,6 +199,8 @@ export function UtilitiesPage() {
       </div>
 
       {/* ------------------------------------------------------- storage -- */}
+      {tab === "storage" && failure && <PageError message={failure} onRetry={() => void loadStorage()} />}
+      {tab === "storage" && storageLoading && !failure && <PageSkeleton cards={3} />}
       {tab === "storage" && storage && (
         <>
           <Card className="mt-6 p-6">

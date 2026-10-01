@@ -17,10 +17,15 @@ import { formatBytes } from "@/utils/format";
 export function DuplicatesPanel() {
   const [groups, setGroups] = useState<DuplicateGroup[] | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    if (!isTauri()) return;
-    getDuplicateGroups().then(setGroups);
+    if (!isTauri()) {
+      setGroups([]);
+      return;
+    }
+    setFailure(null);
+    getDuplicateGroups().then(setGroups).catch((cause) => setFailure(String(cause)));
   }, []);
 
   useEffect(() => {
@@ -72,6 +77,7 @@ export function DuplicatesPanel() {
       {groups && groups.length === 0 && (
         <p className="mt-5 text-xs text-ink-muted">No duplicate groups found yet — run a scan.</p>
       )}
+      {failure && <p className="mt-5 text-xs font-semibold text-red-600" role="alert">{failure}</p>}
 
       {groups && groups.length > 0 && (
         <div className="mt-5 space-y-4">

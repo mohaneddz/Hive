@@ -19,6 +19,7 @@ few sentences, in a warm and direct tone, and don't repeat the raw list back ver
 
 #[tauri::command]
 pub async fn download_llm_model(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.ai.touch();
     let app_data_dir = state.app_data_dir.clone();
     let db_path = state.db_path.clone();
     let ai = state.ai.clone();
@@ -97,13 +98,26 @@ struct ContextRow {
     taken_at: Option<String>,
     camera_model: Option<String>,
     ocr_text: Option<String>,
+    caption: Option<String>,
+    tags: Option<String>,
+    people: Option<String>,
+    place: Option<String>,
 }
 
 fn load_context(conn: &rusqlite::Connection, media_ids: &[String]) -> rusqlite::Result<Vec<ContextRow>> {
     let mut rows = Vec::with_capacity(media_ids.len());
     for id in media_ids {
         let row = conn.query_row(
-            "SELECT m.id, m.filename, COALESCE(m.taken_at_override, m.taken_at), e.camera_model, f.ocr_text
+            "SELECT m.id, m.filename, COALESCE(m.taken_at_override, m.taken_at), e.camera_model, f.ocr_text,
+                    (SELECT c.text FROM captions c WHERE c.media_id = m.id),
+                    (SELECT GROUP_CONCAT(DISTINCT t.tag) FROM tags t WHERE t.media_id = m.id),
+                    (SELECT GROUP_CONCAT(DISTINCT COALESCE(p.name, 'Unnamed person'))
+                       FROM faces face JOIN people p ON p.id = face.person_id
+                      WHERE face.media_id = m.id),
+                    (SELECT g.name FROM geocode_cache g
+                      WHERE ROUND(g.lat, 2) = ROUND(e.gps_lat, 2)
+                        AND ROUND(g.lon, 2) = ROUND(e.gps_lon, 2)
+                      LIMIT 1)
              FROM media_items m
              LEFT JOIN exif_data e ON e.media_id = m.id
              LEFT JOIN media_fts f ON f.media_id = m.id
@@ -115,6 +129,10 @@ fn load_context(conn: &rusqlite::Connection, media_ids: &[String]) -> rusqlite::
                     taken_at: r.get(2)?,
                     camera_model: r.get(3)?,
                     ocr_text: r.get(4)?,
+                    caption: r.get(5)?,
+                    tags: r.get(6)?,
+                    people: r.get(7)?,
+                    place: r.get(8)?,
                 })
             },
         )?;
@@ -139,7 +157,15 @@ fn format_context(rows: &[ContextRow]) -> String {
                 .filter(|t| !t.is_empty())
                 .map(|t| format!(" — visible text: \"{}\"", t.chars().take(200).collect::<String>()))
                 .unwrap_or_default();
-            format!("{}. {} (taken {}, {}){}", i + 1, row.filename, date, camera, text)
+            let caption = row.caption.as_deref().filter(|v| !v.trim().is_empty())
+                .map(|v| format!(" — caption: {}", v.trim())).unwrap_or_default();
+            let tags = row.tags.as_deref().filter(|v| !v.trim().is_empty())
+                .map(|v| format!(" — tags: {}", v)).unwrap_or_default();
+            let people = row.people.as_deref().filter(|v| !v.trim().is_empty())
+                .map(|v| format!(" — people: {}", v)).unwrap_or_default();
+            let place = row.place.as_deref().filter(|v| !v.trim().is_empty())
+                .map(|v| format!(" — place: {}", v)).unwrap_or_default();
+            format!("{}. {} (taken {}, {}){}{}{}{}{}", i + 1, row.filename, date, camera, text, caption, tags, people, place)
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -147,6 +173,7 @@ fn format_context(rows: &[ContextRow]) -> String {
 
 #[tauri::command]
 pub async fn gallery_chat(app: AppHandle, state: State<'_, AppState>, message: String) -> Result<ChatResponse, String> {
+    state.ai.touch();
     ensure_llm_loaded(&state)?;
 
     let media_ids = retrieve_context_ids(&state, &message, 8)?;

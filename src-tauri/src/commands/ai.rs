@@ -29,7 +29,9 @@ pub struct AiStatus {
     /// to know when there is nothing left to fetch. Aesthetic scoring has no
     /// entry here because it downloads nothing.
     pub nsfw_models_ready: bool,
+    pub nsfw_model_loaded: bool,
     pub caption_models_ready: bool,
+    pub caption_model_loaded: bool,
 }
 
 #[tauri::command]
@@ -87,12 +89,20 @@ pub fn get_ai_status(state: State<'_, AppState>) -> Result<AiStatus, String> {
         ocr_model_loaded,
         ocr_indexed_count,
         nsfw_models_ready: model_manager::nsfw_models_ready(&state.app_data_dir),
+        nsfw_model_loaded: state.ai.nsfw.lock().unwrap().is_some(),
         caption_models_ready: model_manager::caption_models_ready(&state.app_data_dir),
+        caption_model_loaded: state.ai.caption.lock().unwrap().is_some(),
     })
 }
 
 #[tauri::command]
+pub fn unload_ai_models(state: State<'_, AppState>) -> Result<i64, String> {
+    Ok(state.ai.unload_all())
+}
+
+#[tauri::command]
 pub async fn download_ai_models(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.ai.touch();
     let app_data_dir = state.app_data_dir.clone();
     let db_path = state.db_path.clone();
     let ai = state.ai.clone();
@@ -156,6 +166,7 @@ pub fn semantic_search(
     query: String,
     limit: i64,
 ) -> Result<Vec<MediaItem>, String> {
+    state.ai.touch();
     ensure_loaded(&state)?;
 
     let query_vec = {
@@ -227,6 +238,7 @@ pub fn try_embed_image(ai: &crate::ai::AiState, conn: &Connection, media_id: &st
 
 #[tauri::command]
 pub async fn backfill_embeddings(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.ai.touch();
     ensure_loaded(&state)?;
 
     let db_path = state.db_path.clone();
@@ -288,6 +300,7 @@ pub async fn backfill_embeddings(app: AppHandle, state: State<'_, AppState>) -> 
 
 #[tauri::command]
 pub async fn download_ocr_models(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.ai.touch();
     let app_data_dir = state.app_data_dir.clone();
     let db_path = state.db_path.clone();
     let ai = state.ai.clone();
@@ -358,6 +371,7 @@ pub fn try_extract_ocr_text(ai: &crate::ai::AiState, conn: &Connection, media_id
 
 #[tauri::command]
 pub async fn backfill_ocr(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.ai.touch();
     ensure_ocr_loaded(&state)?;
 
     let db_path = state.db_path.clone();

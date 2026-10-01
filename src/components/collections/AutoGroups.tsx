@@ -4,6 +4,7 @@ import { ArrowLeft, CalendarRange, Loader2, MapPin, Plane } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { PageError, PageSkeleton } from "@/components/ui/AsyncState";
 import { MediaGrid } from "@/components/media/MediaGrid";
 import { MediaThumb } from "@/components/media/MediaThumb";
 import {
@@ -42,12 +43,17 @@ export function TimelineView() {
   const [open, setOpen] = useState<TimelineBucket | null>(null);
   const [items, setItems] = useState<MediaItem[]>([]);
   const [showUnspecified, setShowUnspecified] = useState(true);
+  const [failure, setFailure] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isTauri()) {
+      setBuckets([]);
+      return;
+    }
     setBuckets(null);
     setOpen(null);
-    void getTimeline(granularity).then(setBuckets);
+    setFailure(null);
+    void getTimeline(granularity).then(setBuckets).catch((cause) => setFailure(String(cause)));
   }, [granularity]);
 
   const openBucket = async (bucket: TimelineBucket) => {
@@ -111,7 +117,8 @@ export function TimelineView() {
         )}
       </div>
 
-      {buckets === null && <div className="mt-10 text-center text-sm text-ink-muted">Loading…</div>}
+      {failure && <PageError message={failure} />}
+      {buckets === null && !failure && <PageSkeleton />}
 
       {buckets?.length === 0 && (
         <EmptyState
@@ -122,7 +129,7 @@ export function TimelineView() {
       )}
 
       {visibleBuckets && visibleBuckets.length > 0 && (
-        <div className="mt-6 grid grid-cols-4 gap-4">
+        <div className="mt-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
           {visibleBuckets.map((bucket) => (
             <button
               key={bucket.key}
@@ -166,13 +173,20 @@ export function EventsView({ trips = false }: { trips?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<EventGroup | null>(null);
   const [items, setItems] = useState<MediaItem[]>([]);
+  const [failure, setFailure] = useState<string | null>(null);
 
   const run = useCallback(async () => {
-    if (!isTauri()) return;
+    if (!isTauri()) {
+      setGroups([]);
+      return;
+    }
     setBusy(true);
     setOpen(null);
+    setFailure(null);
     try {
       setGroups(trips ? await detectTrips() : await detectEvents());
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setBusy(false);
     }
@@ -233,7 +247,8 @@ export function EventsView({ trips = false }: { trips?: boolean }) {
         </Button>
       </Card>
 
-      {groups === null && <div className="mt-10 text-center text-sm text-ink-muted">Loading…</div>}
+      {failure && <PageError message={failure} onRetry={() => void run()} />}
+      {groups === null && !failure && <PageSkeleton />}
 
       {groups?.length === 0 && (
         <EmptyState
@@ -248,7 +263,7 @@ export function EventsView({ trips = false }: { trips?: boolean }) {
       )}
 
       {groups && groups.length > 0 && (
-        <div className="mt-5 grid grid-cols-4 gap-4">
+        <div className="mt-5 grid grid-cols-2 gap-4 xl:grid-cols-4">
           {groups.map((group) => (
             <button
               key={group.id}

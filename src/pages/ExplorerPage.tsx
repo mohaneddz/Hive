@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Eye, Folder, FolderPlus, HardDrive, Home, Images } from "lucide-react";
+import { ArrowDownAZ, ChevronRight, Eye, Folder, FolderPlus, HardDrive, Home, Images, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { PageError, PageSkeleton } from "@/components/ui/AsyncState";
 import {
   addWatchedFolder,
   isTauri,
@@ -36,9 +37,14 @@ export function ExplorerPage() {
   const [watched, setWatched] = useState<WatchedFolder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<"name" | "media">("name");
 
   const load = useCallback(async () => {
-    if (!isTauri()) return;
+    if (!isTauri()) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -71,6 +77,9 @@ export function ExplorerPage() {
   // The first row returned by `list_directory` describes the folder itself.
   const self = path !== null ? entries[0] : null;
   const children = path !== null ? entries.slice(1) : entries;
+  const visibleChildren = children
+    .filter((entry) => entry.name.toLowerCase().includes(query.trim().toLowerCase()))
+    .sort((a, b) => sort === "media" ? b.mediaCount - a.mediaCount : a.name.localeCompare(b.name));
 
   return (
     <div>
@@ -79,7 +88,7 @@ export function ExplorerPage() {
         title="Browse your drives."
         description="Look through the filesystem exactly as it is, and hand any folder to Hive to index."
         action={
-          self && !self.isWatched && self.mediaCount > 0 ? (
+          self && !self.isWatched ? (
             <Button icon={<FolderPlus size={16} />} onClick={() => watch(self)}>
               Watch this folder
             </Button>
@@ -106,6 +115,24 @@ export function ExplorerPage() {
               </button>
             </span>
           ))}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <label className="relative min-w-52 flex-1">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Filter folders"
+            className="search-input !h-9 !pl-9"
+          />
+        </label>
+        <button
+          onClick={() => setSort((current) => current === "name" ? "media" : "name")}
+          className="inline-flex h-9 items-center gap-2 rounded-xl border border-ink/[.12] bg-panel px-3 text-xs font-bold text-ink"
+        >
+          <ArrowDownAZ size={14} /> {sort === "name" ? "Name" : "Media count"}
+        </button>
       </div>
 
       {watched.length > 0 && path === null && (
@@ -137,11 +164,7 @@ export function ExplorerPage() {
         </>
       )}
 
-      {error && (
-        <Card className="mt-7 border-red-500/30 p-5 text-xs font-semibold text-red-600">
-          {error}
-        </Card>
-      )}
+      {error && <PageError message={error} onRetry={() => void load()} />}
 
       {self && (
         <Card className="mt-7 flex items-center gap-4 p-5">
@@ -166,21 +189,19 @@ export function ExplorerPage() {
         </Card>
       )}
 
-      {loading && entries.length === 0 && (
-        <div className="mt-12 text-center text-sm text-ink-muted">Loading…</div>
-      )}
+      {loading && entries.length === 0 && !error && <PageSkeleton cards={6} />}
 
-      {!loading && children.length === 0 && !error && (
+      {!loading && visibleChildren.length === 0 && !error && (
         <EmptyState
           icon={<Folder size={22} />}
-          title="No sub-folders here"
-          description="This folder has no sub-folders to descend into."
+          title={query ? "No matching folders" : "No sub-folders here"}
+          description={query ? "Try a different folder name." : "This folder has no sub-folders to descend into."}
         />
       )}
 
-      {children.length > 0 && (
+      {visibleChildren.length > 0 && (
         <div className="mt-5 space-y-2">
-          {children.map((entry) => (
+          {visibleChildren.map((entry) => (
             <div
               key={entry.path}
               className={cn(
@@ -196,7 +217,7 @@ export function ExplorerPage() {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-extrabold text-ink">{entry.name}</span>
                   <span className="block truncate text-[11px] text-ink-muted">
-                    {entry.mediaCount > 0 ? formatCount(entry.mediaCount, "media file") : "No media directly inside"}
+                    {entry.mediaCount > 0 ? `${formatCount(entry.mediaCount, "media file")} in this folder tree` : "No media found inside"}
                     {entry.indexedCount > 0 && ` · ${entry.indexedCount.toLocaleString()} indexed`}
                   </span>
                 </span>

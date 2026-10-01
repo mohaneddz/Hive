@@ -14,6 +14,7 @@ const SAME_PERSON_THRESHOLD: f32 = 0.5;
 
 #[tauri::command]
 pub async fn download_face_models(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.ai.touch();
     let app_data_dir = state.app_data_dir.clone();
     let db_path = state.db_path.clone();
     let ai = state.ai.clone();
@@ -168,6 +169,7 @@ pub fn try_detect_faces(
 
 #[tauri::command]
 pub async fn backfill_faces(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.ai.touch();
     ensure_face_loaded(&state)?;
 
     let db_path = state.db_path.clone();
@@ -257,6 +259,36 @@ pub fn merge_people(state: State<'_, AppState>, source_id: String, target_id: St
     conn.execute("DELETE FROM people WHERE id = ?1", params![source_id])
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn reassign_person_media(
+    state: State<'_, AppState>,
+    source_id: String,
+    target_id: Option<String>,
+    media_ids: Vec<String>,
+) -> Result<(), String> {
+    if media_ids.is_empty() {
+        return Ok(());
+    }
+    if target_id.as_deref() == Some(source_id.as_str()) {
+        return Err("choose a different person".into());
+    }
+    let mut conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for media_id in media_ids {
+        tx.execute(
+            "UPDATE faces SET person_id = ?1 WHERE person_id = ?2 AND media_id = ?3",
+            params![target_id, source_id, media_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.execute(
+        "DELETE FROM people WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM faces WHERE person_id = ?1)",
+        params![source_id],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

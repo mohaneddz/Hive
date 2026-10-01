@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
 pub async fn download_nsfw_model(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.ai.touch();
     let app_data_dir = state.app_data_dir.clone();
     model_manager::ensure_nsfw_models(&app_data_dir, move |done, total| {
         let _ = app.emit("nsfw:download:progress", (done, total));
@@ -20,6 +21,7 @@ pub async fn download_nsfw_model(app: AppHandle, state: State<'_, AppState>) -> 
 
 #[tauri::command]
 pub async fn backfill_nsfw(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    state.ai.touch();
     {
         let mut guard = state.ai.nsfw.lock().unwrap();
         if guard.is_none() {

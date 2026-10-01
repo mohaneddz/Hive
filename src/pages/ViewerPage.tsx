@@ -58,14 +58,21 @@ export function ViewerPage() {
 
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [isPlayingSlideshow, setIsPlayingSlideshow] = useState(false);
+  const [slideshowDelay, setSlideshowDelay] = useState(3500);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [albumDialog, setAlbumDialog] = useState(false);
   const { matches } = useShortcuts();
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const closeViewer = useCallback(() => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate("/gallery", { replace: true });
+  }, [navigate]);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -74,9 +81,13 @@ export function ViewerPage() {
 
   useEffect(() => {
     let cancelled = false;
-    getMediaPage({ limit: NAV_WINDOW, offset: 0 }).then((page) => {
-      if (!cancelled) setNeighbors(page.items);
-    });
+    getMediaPage({ limit: NAV_WINDOW, offset: 0 })
+      .then((page) => {
+        if (!cancelled) setNeighbors(page.items);
+      })
+      .catch((cause) => {
+        if (!cancelled) setFailure(String(cause));
+      });
     return () => {
       cancelled = true;
     };
@@ -90,15 +101,20 @@ export function ViewerPage() {
     setPan({ x: 0, y: 0 });
     setRotation(0);
     setContextMenu(null);
+    setFailure(null);
 
     const fromWindow = neighbors.find((entry) => entry.id === id);
     if (fromWindow) {
       setItem(fromWindow);
       return;
     }
-    getMediaDetail(id).then((detail) => {
-      if (!cancelled) setItem(detail);
-    });
+    getMediaDetail(id)
+      .then((detail) => {
+        if (!cancelled) setItem(detail);
+      })
+      .catch((cause) => {
+        if (!cancelled) setFailure(String(cause));
+      });
     return () => {
       cancelled = true;
     };
@@ -123,9 +139,9 @@ export function ViewerPage() {
       } else if (neighbors.length > 0) {
         goTo(neighbors[0]); // loops back to the start
       }
-    }, 3500);
+    }, slideshowDelay);
     return () => clearInterval(interval);
-  }, [isPlayingSlideshow, nextItem, neighbors, goTo]);
+  }, [isPlayingSlideshow, slideshowDelay, nextItem, neighbors, goTo]);
 
   useEffect(() => {
     // Bindings come from Settings rather than being written in here, so any of
@@ -139,7 +155,7 @@ export function ViewerPage() {
       if (matches(event, "close")) {
         if (isInfoOpen) setIsInfoOpen(false);
         else if (contextMenu) setContextMenu(null);
-        else navigate("/");
+        else closeViewer();
       }
       // "=" sits on the same physical key as "+" on most layouts.
       if (matches(event, "zoomIn") || event.key === "=") handleZoomIn();
@@ -156,7 +172,7 @@ export function ViewerPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goTo, prevItem, nextItem, navigate, isInfoOpen, contextMenu, albumDialog, id, matches]);
+  }, [goTo, prevItem, nextItem, navigate, closeViewer, isInfoOpen, contextMenu, albumDialog, id, matches]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -248,7 +264,7 @@ export function ViewerPage() {
     if (!item) return;
     await setTrashed(item.id, true);
     showToast("Moved to Trash");
-    navigate("/");
+    closeViewer();
   };
 
   const handleCopyPath = async () => {
@@ -293,6 +309,20 @@ export function ViewerPage() {
     else setStageBg("adaptive");
   };
 
+  if (failure && !item) {
+    return (
+      <div className="fixed inset-0 z-50 grid place-items-center bg-canvas p-6 text-ink">
+        <div className="max-w-md rounded-3xl border border-red-500/25 bg-panel p-7 text-center shadow-xl">
+          <p className="text-base font-extrabold">Couldn’t open this photo</p>
+          <p className="mt-2 break-words text-xs text-red-600">{failure}</p>
+          <button onClick={closeViewer} className="mt-5 rounded-xl bg-honey px-4 py-2 text-xs font-extrabold text-[#3b2900]">
+            Back to library
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!item) {
     return (
       <div className="fixed inset-0 z-50 grid place-items-center bg-canvas text-sm font-medium text-ink-muted">
@@ -336,7 +366,7 @@ export function ViewerPage() {
       <header className="relative z-30 flex h-16 items-center justify-between px-6 border-b border-ink/[.2] bg-panel/40 dark:bg-panel/40 backdrop-blur-md">
         <div className="flex items-center gap-3 min-w-0">
           <button
-            onClick={() => navigate("/")}
+            onClick={closeViewer}
             className="flex items-center gap-2 rounded-xl border border-ink/[.3] bg-panel/60 px-3 py-1.5 text-xs font-semibold hover:border-honey/50 hover:bg-honey/15 hover:text-honey transition"
             aria-label="Back to Gallery"
           >
@@ -497,6 +527,7 @@ export function ViewerPage() {
             onClick={handleZoomOut}
             className="rounded-xl p-2 hover:bg-honey/15 hover:text-honey transition"
             title="Zoom Out (-)"
+            aria-label="Zoom out"
           >
             <ZoomOut size={16} />
           </button>
@@ -505,6 +536,7 @@ export function ViewerPage() {
             onClick={handleResetZoom}
             className="rounded-xl px-2.5 py-1 font-bold text-[11px] hover:bg-honey/15 hover:text-honey transition"
             title="Reset Zoom / Fit to Screen"
+            aria-label="Reset zoom"
           >
             {zoom === 1 ? "Fit" : `${Math.round(zoom * 100)}%`}
           </button>
@@ -513,6 +545,7 @@ export function ViewerPage() {
             onClick={handleZoomIn}
             className="rounded-xl p-2 hover:bg-honey/15 hover:text-honey transition"
             title="Zoom In (+)"
+            aria-label="Zoom in"
           >
             <ZoomIn size={16} />
           </button>
@@ -523,6 +556,7 @@ export function ViewerPage() {
             onClick={handleRotateCcw}
             className="rounded-xl p-2 hover:bg-honey/15 hover:text-honey transition"
             title="Rotate Left (Shift+R)"
+            aria-label="Rotate left"
           >
             <RotateCcw size={16} />
           </button>
@@ -531,6 +565,7 @@ export function ViewerPage() {
             onClick={handleRotateCw}
             className="rounded-xl p-2 hover:bg-honey/15 hover:text-honey transition"
             title="Rotate Right (R)"
+            aria-label="Rotate right"
           >
             <RotateCw size={16} />
           </button>
@@ -546,14 +581,28 @@ export function ViewerPage() {
                 : "hover:bg-honey/15 hover:text-honey"
             )}
             title="Slideshow (Space)"
+            aria-label={isPlayingSlideshow ? "Pause slideshow" : "Play slideshow"}
           >
             {isPlayingSlideshow ? <Pause size={16} /> : <Play size={16} />}
           </button>
+
+          <select
+            value={slideshowDelay}
+            onChange={(event) => setSlideshowDelay(Number(event.target.value))}
+            className="h-8 rounded-lg border border-ink/[.2] bg-panel px-2 text-[11px] font-bold text-ink outline-none"
+            aria-label="Slideshow speed"
+            title="Slideshow speed"
+          >
+            <option value={6000}>Slow</option>
+            <option value={3500}>Normal</option>
+            <option value={2000}>Fast</option>
+          </select>
 
           <button
             onClick={toggleFullscreen}
             className="rounded-xl p-2 hover:bg-honey/15 hover:text-honey transition"
             title="Fullscreen (F)"
+            aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
           >
             {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>

@@ -8,6 +8,7 @@ import {
   Download,
   EyeOff,
   Heart,
+  Image,
   Layers,
   Pencil,
   Plane,
@@ -31,6 +32,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { PageError, PageSkeleton } from "@/components/ui/AsyncState";
 import { MediaGrid } from "@/components/media/MediaGrid";
 import { MediaThumb } from "@/components/media/MediaThumb";
 import { routes } from "@/config/routes";
@@ -47,6 +49,7 @@ import {
   listAllTags,
   listMediaByTag,
   listSmartAlbums,
+  setSmartAlbumCover,
   suggestSmartAlbums,
   updateAlbum,
 } from "@/lib/tauri";
@@ -131,6 +134,8 @@ export function CollectionsPage() {
   const [editing, setEditing] = useState<Album | null>(null);
   const [editName, setEditName] = useState("");
   const [buildingSmartAlbum, setBuildingSmartAlbum] = useState(false);
+  const [editingSmartAlbum, setEditingSmartAlbum] = useState<SmartAlbum | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const best = useBestPhoto();
@@ -139,8 +144,12 @@ export function CollectionsPage() {
   const smartParam = searchParams.get("smart");
 
   const loadOverview = useCallback(async () => {
-    if (!isTauri()) return;
+    if (!isTauri()) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setFailure(null);
     try {
       const [fetchedAlbums, fetchedSmart, fetchedSugg, fetchedTags] = await Promise.all([
         listAlbums().catch(() => []),
@@ -152,34 +161,43 @@ export function CollectionsPage() {
       setSmartAlbums(fetchedSmart);
       setSuggestions(fetchedSugg);
       setTagSummaries(fetchedTags);
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setLoading(false);
     }
   }, []);
 
   const loadTagView = useCallback(async (tag: string) => {
-    if (!isTauri()) return;
+    if (!isTauri()) { setLoading(false); return; }
     setLoading(true);
+    setFailure(null);
     try {
       setItems(await listMediaByTag(tag));
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setLoading(false);
     }
   }, []);
 
   const loadSmartAlbumView = useCallback(async (albumId: string) => {
-    if (!isTauri()) return;
+    if (!isTauri()) { setLoading(false); return; }
     setLoading(true);
+    setFailure(null);
     try {
       setItems(await getSmartAlbumMedia(albumId));
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setLoading(false);
     }
   }, []);
 
   const loadSmartView = useCallback(async (key: SmartViewKey) => {
-    if (!isTauri()) return;
+    if (!isTauri()) { setLoading(false); return; }
     setLoading(true);
+    setFailure(null);
     try {
       const config = SMART_VIEWS[key];
       const page = await getMediaPage({
@@ -189,6 +207,8 @@ export function CollectionsPage() {
         favoritesOnly: config.favoritesOnly || undefined,
       });
       setItems(page.items);
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setLoading(false);
     }
@@ -388,8 +408,10 @@ export function CollectionsPage() {
         )}
         {selectionNote("Photos carry this tag because the AI gave it to them, so there is nothing to remove by hand.")}
 
-        {loading ? (
-          <div className="mt-12 text-center text-sm text-ink-muted">Loading…</div>
+        {failure ? (
+          <PageError message={failure} onRetry={() => void loadTagView(tagParam)} />
+        ) : loading ? (
+          <PageSkeleton />
         ) : items.length === 0 ? (
           <EmptyState
             icon={<Tag size={22} />}
@@ -438,8 +460,10 @@ export function CollectionsPage() {
         )}
         {selectionNote("Photos join and leave a smart album by matching its rules, so there is nothing to remove by hand.")}
 
-        {loading ? (
-          <div className="mt-12 text-center text-sm text-ink-muted">Loading…</div>
+        {failure ? (
+          <PageError message={failure} onRetry={() => void loadSmartAlbumView(smartParam)} />
+        ) : loading ? (
+          <PageSkeleton />
         ) : items.length === 0 ? (
           <EmptyState
             icon={<Wand2 size={22} />}
@@ -451,7 +475,31 @@ export function CollectionsPage() {
             items={items}
             className="mt-7"
             onFavoriteChange={applyFavorite}
-            {...collectionGridProps}
+            selected={selecting ? selected : undefined}
+            onToggleSelect={selecting ? toggleSelect : undefined}
+            renderOverlay={selecting ? undefined : (item) => {
+              const ranked = best.byMedia.get(item.id);
+              return (
+                <>
+                  {ranked && <RankBadge entry={ranked} />}
+                  <button
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void setSmartAlbumCover(smartParam, item.id).then(() =>
+                        setSmartAlbums((prev) => prev.map((album) =>
+                          album.id === smartParam ? { ...album, coverMediaId: item.id } : album,
+                        )),
+                      );
+                    }}
+                    className="icon-button bg-white/15 text-white backdrop-blur-md"
+                    aria-label="Use as smart album cover"
+                    title="Use as smart album cover"
+                  >
+                    <Image size={14} />
+                  </button>
+                </>
+              );
+            }}
           />
         )}
       </div>
@@ -501,8 +549,10 @@ export function CollectionsPage() {
             loading ? config.description : `${formatCount(items.length, "item")}. ${config.description}`
           }
         />
-        {loading ? (
-          <div className="mt-12 text-center text-sm text-ink-muted">Loading…</div>
+        {failure ? (
+          <PageError message={failure} onRetry={() => void loadSmartView(view)} />
+        ) : loading ? (
+          <PageSkeleton />
         ) : items.length === 0 ? (
           <EmptyState
             icon={<config.icon size={22} />}
@@ -533,6 +583,9 @@ export function CollectionsPage() {
         }
       />
 
+      {failure && <PageError message={failure} onRetry={() => void loadOverview()} />}
+      {loading && albums.length === 0 && smartAlbums.length === 0 && !failure && <PageSkeleton />}
+
       {creating && (
         <div className="mt-6 flex items-center gap-2">
           <input
@@ -555,7 +608,7 @@ export function CollectionsPage() {
         </div>
       )}
 
-      <div className="mt-7 grid grid-cols-4 gap-4">
+      <div className="mt-7 grid grid-cols-2 gap-4 xl:grid-cols-4">
         {(Object.keys(SMART_VIEWS) as SmartViewKey[]).map((key) => {
           const config = SMART_VIEWS[key];
           const count =
@@ -610,7 +663,7 @@ export function CollectionsPage() {
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-4">
+      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
         {(Object.keys(AUTO_VIEWS) as AutoViewKey[]).map((key) => {
           const config = AUTO_VIEWS[key];
           return (
@@ -659,7 +712,7 @@ export function CollectionsPage() {
       )}
 
       {albums.length > 0 && (
-        <div className="mt-5 grid grid-cols-4 gap-4">
+        <div className="mt-5 grid grid-cols-2 gap-4 xl:grid-cols-4">
           {albums.map((album) => (
             <Card key={album.id} className="group overflow-hidden">
               <Link to={`/albums/${album.id}`} className="block">
@@ -769,7 +822,7 @@ export function CollectionsPage() {
           <button> inside a <button> is invalid HTML, and the browser resolves it
           by dropping one — which is why the delete click did nothing. */}
       {smartAlbums.length > 0 ? (
-        <div className="mt-4 grid grid-cols-4 gap-4">
+        <div className="mt-4 grid grid-cols-2 gap-4 xl:grid-cols-4">
           {smartAlbums.map((sa) => (
             <Card key={sa.id} className="group overflow-hidden">
               <button
@@ -792,6 +845,13 @@ export function CollectionsPage() {
               </button>
               <div className="flex items-start justify-between gap-2 p-4">
                 <button
+                  onClick={() => setEditingSmartAlbum(sa)}
+                  className="icon-button !h-7 !w-7 shrink-0"
+                  aria-label={`Edit ${sa.name}`}
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
                   onClick={() => setSearchParams({ smart: sa.id })}
                   className="min-w-0 flex-1 text-left"
                 >
@@ -802,6 +862,11 @@ export function CollectionsPage() {
                 </button>
                 <button
                   onClick={async () => {
+                    const confirmed = await confirm(
+                      `Delete the smart album "${sa.name}"? Its photos stay in your library.`,
+                      { title: "Delete smart album", kind: "warning" },
+                    );
+                    if (!confirmed) return;
                     await deleteSmartAlbum(sa.id);
                     setSmartAlbums((prev) => prev.filter((entry) => entry.id !== sa.id));
                   }}
@@ -853,7 +918,16 @@ export function CollectionsPage() {
       {buildingSmartAlbum && (
         <SmartAlbumDialog
           onClose={() => setBuildingSmartAlbum(false)}
-          onCreated={(album) => setSmartAlbums((prev) => [album, ...prev])}
+          onSaved={(album) => setSmartAlbums((prev) => [album, ...prev])}
+        />
+      )}
+      {editingSmartAlbum && (
+        <SmartAlbumDialog
+          initialAlbum={editingSmartAlbum}
+          onClose={() => setEditingSmartAlbum(null)}
+          onSaved={(album) =>
+            setSmartAlbums((prev) => prev.map((entry) => (entry.id === album.id ? album : entry)))
+          }
         />
       )}
     </div>

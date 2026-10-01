@@ -7,7 +7,10 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
-const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"];
+const IMAGE_EXTS: &[&str] = &[
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "avif", "heic", "heif",
+    "cr2", "cr3", "nef", "arw", "dng", "orf", "rw2", "raf",
+];
 const VIDEO_EXTS: &[&str] = &["mp4", "mov", "avi", "mkv", "webm"];
 
 pub fn is_supported_media(path: &Path) -> Option<&'static str> {

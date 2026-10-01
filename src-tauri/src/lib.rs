@@ -63,6 +63,15 @@ pub fn run() {
 
             let ai_state = std::sync::Arc::new(ai::AiState::default());
 
+            // Reclaim inactive inference sessions after ten quiet minutes. A
+            // running command holds its model lock, so the reaper cannot tear a
+            // session down while inference is in progress.
+            let idle_ai = ai_state.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_secs(60));
+                let _ = idle_ai.unload_if_idle(10 * 60);
+            });
+
             let watchers = watcher::WatcherRegistry::default();
             let handle = app.handle().clone();
             for (folder_id, folder_path) in existing_folders {
@@ -76,44 +85,9 @@ pub fn run() {
                 );
             }
 
-            // Warm-load the CLIP/OCR models in the background if they were already downloaded
-            // in a previous session, so semantic search / OCR-as-you-go work immediately.
-            if ai::model_manager::clip_models_ready(&app_data_dir) {
-                let ai_state = ai_state.clone();
-                let clip_dir = ai::model_manager::clip_dir(&app_data_dir);
-                tauri::async_runtime::spawn_blocking(move || {
-                    if let Ok(model) = ai::clip::ClipModel::load(&clip_dir) {
-                        *ai_state.clip.lock().unwrap() = Some(model);
-                    }
-                });
-            }
-            if ai::model_manager::ocr_models_ready(&app_data_dir) {
-                let ai_state = ai_state.clone();
-                let ocr_dir = ai::model_manager::ocr_dir(&app_data_dir);
-                tauri::async_runtime::spawn_blocking(move || {
-                    if let Ok(model) = ai::ocr::OcrModel::load(&ocr_dir) {
-                        *ai_state.ocr.lock().unwrap() = Some(model);
-                    }
-                });
-            }
-            if ai::model_manager::face_models_ready(&app_data_dir) {
-                let ai_state = ai_state.clone();
-                let face_dir = ai::model_manager::face_dir(&app_data_dir);
-                tauri::async_runtime::spawn_blocking(move || {
-                    if let Ok(model) = ai::face::FaceModel::load(&face_dir) {
-                        *ai_state.face.lock().unwrap() = Some(model);
-                    }
-                });
-            }
-            if ai::model_manager::llm_models_ready(&app_data_dir) {
-                let ai_state = ai_state.clone();
-                let llm_dir = ai::model_manager::llm_dir(&app_data_dir);
-                tauri::async_runtime::spawn_blocking(move || {
-                    if let Ok(model) = ai::llm::ChatModel::load(&llm_dir) {
-                        *ai_state.llm.lock().unwrap() = Some(model);
-                    }
-                });
-            }
+            // Models are loaded on first use instead of all at startup. This
+            // keeps an ordinary browsing session light even when every optional
+            // model has been downloaded.
 
             app.manage(AppState {
                 db_path,
@@ -144,6 +118,7 @@ pub fn run() {
             commands::media::get_library_stats,
             commands::media::backfill_thumbnails,
             commands::ai::get_ai_status,
+            commands::ai::unload_ai_models,
             commands::ai::download_ai_models,
             commands::ai::semantic_search,
             commands::ai::backfill_embeddings,
@@ -157,6 +132,7 @@ pub fn run() {
             commands::faces::list_people,
             commands::faces::rename_person,
             commands::faces::merge_people,
+            commands::faces::reassign_person_media,
             commands::faces::get_person_media,
             commands::faces::read_face_crop_bytes,
             commands::media::set_hidden,
@@ -221,9 +197,11 @@ pub fn run() {
             commands::tagging::backfill_tags,
             commands::best_photo::select_best_photo,
             commands::smart_albums::create_smart_album,
+            commands::smart_albums::update_smart_album,
             commands::smart_albums::list_smart_albums,
             commands::smart_albums::get_smart_album_media,
             commands::smart_albums::delete_smart_album,
+            commands::smart_albums::set_smart_album_cover,
             commands::smart_albums::suggest_smart_albums,
             commands::aesthetic::backfill_aesthetic,
             commands::aesthetic::get_aesthetic_ranking,

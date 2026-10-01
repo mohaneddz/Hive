@@ -34,6 +34,7 @@ import {
   setFolderWatched,
   setGeocodingEnabled,
   setNsfwPolicy as setNsfwPolicyCommand,
+  unloadAiModels,
 } from "@/lib/tauri";
 import { ShortcutEditor } from "@/components/settings/ShortcutEditor";
 import { useDownloadProgress } from "@/hooks/useDownloadProgress";
@@ -78,11 +79,20 @@ export function GallerySettingsPage() {
   const [cacheLimit, setCacheLimit] = useState(0);
   /// Model downloads create no job, so a failure has nowhere else to surface.
   const [failure, setFailure] = useState<string | null>(null);
+  const [releasingModels, setReleasingModels] = useState(false);
 
   // Without these, a 230 MB download is indistinguishable from a dead button.
   const nsfwProgress = useDownloadProgress("nsfw:download:progress");
   const captionProgress = useDownloadProgress("caption:download:progress");
   const { stats } = useLibraryStats();
+  const approximateModelMemoryMb = aiStatus ? [
+    aiStatus.modelLoaded ? 620 : 0,
+    aiStatus.ocrModelLoaded ? 190 : 0,
+    aiStatus.faceModelLoaded ? 220 : 0,
+    aiStatus.llmModelLoaded ? 2400 : 0,
+    aiStatus.nsfwModelLoaded ? 170 : 0,
+    aiStatus.captionModelLoaded ? 760 : 0,
+  ].reduce((total, value) => total + value, 0) : 0;
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -260,10 +270,16 @@ export function GallerySettingsPage() {
   };
 
   const startNsfwBackfill = async () => {
+    if (!aiStatus?.nsfwModelsReady) {
+      setFailure("Download the Sensitive Content Detection model before scanning the library.");
+      return;
+    }
     setNsfwBackfilling(true);
     try {
       await backfillNsfw();
       refreshAiStatus();
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setNsfwBackfilling(false);
     }
@@ -282,10 +298,16 @@ export function GallerySettingsPage() {
   };
 
   const startCaptionBackfill = async () => {
+    if (!aiStatus?.captionModelsReady) {
+      setFailure("Download the Image Captions model before generating captions.");
+      return;
+    }
     setCaptionBackfilling(true);
     try {
       await backfillCaptions();
       refreshAiStatus();
+    } catch (cause) {
+      setFailure(String(cause));
     } finally {
       setCaptionBackfilling(false);
     }
@@ -297,6 +319,19 @@ export function GallerySettingsPage() {
       await backfillThumbnails();
     } finally {
       setThumbsRebuilding(false);
+    }
+  };
+
+  const releaseModels = async () => {
+    setReleasingModels(true);
+    setFailure(null);
+    try {
+      await unloadAiModels();
+      refreshAiStatus();
+    } catch (cause) {
+      setFailure(String(cause));
+    } finally {
+      setReleasingModels(false);
     }
   };
 
@@ -680,8 +715,9 @@ export function GallerySettingsPage() {
               )}
               <Button
                 variant="secondary"
-                disabled={nsfwBackfilling || !!nsfwBackfillJob}
+                disabled={!aiStatus?.nsfwModelsReady || nsfwBackfilling || !!nsfwBackfillJob}
                 onClick={startNsfwBackfill}
+                title={!aiStatus?.nsfwModelsReady ? "Download the model first" : undefined}
               >
                 {nsfwBackfillJob ? "Scanning…" : "Scan library"}
               </Button>
@@ -713,12 +749,24 @@ export function GallerySettingsPage() {
               )}
               <Button
                 variant="secondary"
-                disabled={captionBackfilling || !!captionBackfillJob}
+                disabled={!aiStatus?.captionModelsReady || captionBackfilling || !!captionBackfillJob}
                 onClick={startCaptionBackfill}
+                title={!aiStatus?.captionModelsReady ? "Download the model first" : undefined}
               >
                 {captionBackfillJob ? "Generating…" : "Generate captions"}
               </Button>
             </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-ink/[.08] pt-4">
+            <p className="max-w-xl text-[11px] text-ink-muted">
+              Models load only when a feature needs them. {approximateModelMemoryMb > 0
+                ? `Loaded models use roughly ${approximateModelMemoryMb >= 1024 ? `${(approximateModelMemoryMb / 1024).toFixed(1)} GB` : `${approximateModelMemoryMb} MB`} of memory.`
+                : "No AI models are currently loaded."} Release them after a heavy AI session; they reload automatically next time.
+            </p>
+            <Button variant="secondary" onClick={releaseModels} disabled={releasingModels}>
+              {releasingModels ? "Releasing…" : "Release AI memory"}
+            </Button>
           </div>
         </Card>
 
@@ -914,6 +962,7 @@ export function GallerySettingsPage() {
               <button
                 role="switch"
                 aria-checked={geocoding}
+                aria-label="Look up place names"
                 onClick={async () => {
                   const next = !geocoding;
                   await setGeocodingEnabled(next);
@@ -951,6 +1000,7 @@ export function GallerySettingsPage() {
               <button
                 role="switch"
                 aria-checked={nsfwPolicy.autoHide}
+                aria-label="Automatically hide sensitive photos"
                 onClick={() => void saveNsfwPolicy(nsfwPolicy.threshold, !nsfwPolicy.autoHide)}
                 className={cn(
                   "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition",

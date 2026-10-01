@@ -311,6 +311,56 @@ pub fn create_smart_album(
 }
 
 #[tauri::command]
+pub fn update_smart_album(
+    state: State<'_, AppState>,
+    album_id: String,
+    name: String,
+    rules: Vec<SmartAlbumRule>,
+    match_type: String,
+) -> Result<SmartAlbum, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    if name.trim().is_empty() {
+        return Err("a smart album needs a name".into());
+    }
+    if rules.is_empty() {
+        return Err("a smart album needs at least one rule".into());
+    }
+
+    let ids = query_smart_album(&conn, &rules, &match_type, 10_000)?;
+    let (created_at, old_cover): (String, Option<String>) = conn
+        .query_row(
+            "SELECT created_at, cover_media_id FROM smart_albums WHERE id = ?1",
+            params![album_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    let cover_media_id = old_cover
+        .filter(|cover| ids.iter().any(|id| id == cover))
+        .or_else(|| ids.first().cloned());
+    let now = chrono::Utc::now().to_rfc3339();
+    let rules_json = serde_json::to_string(&rules).map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "UPDATE smart_albums
+         SET name = ?2, rules = ?3, match_type = ?4, cover_media_id = ?5, updated_at = ?6
+         WHERE id = ?1",
+        params![album_id, name.trim(), rules_json, match_type, cover_media_id, now],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(SmartAlbum {
+        id: album_id,
+        name: name.trim().to_string(),
+        rules,
+        match_type,
+        cover_media_id,
+        item_count: ids.len() as i64,
+        created_at,
+        updated_at: now,
+    })
+}
+
+#[tauri::command]
 pub fn list_smart_albums(state: State<'_, AppState>) -> Result<Vec<SmartAlbum>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
@@ -394,6 +444,32 @@ pub fn delete_smart_album(state: State<'_, AppState>, album_id: String) -> Resul
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM smart_albums WHERE id = ?1", params![album_id])
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_smart_album_cover(
+    state: State<'_, AppState>,
+    album_id: String,
+    media_id: String,
+) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let (rules_json, match_type): (String, String) = conn
+        .query_row(
+            "SELECT rules, match_type FROM smart_albums WHERE id = ?1",
+            params![album_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    let rules: Vec<SmartAlbumRule> = serde_json::from_str(&rules_json).map_err(|e| e.to_string())?;
+    if !query_smart_album(&conn, &rules, &match_type, 10_000)?.contains(&media_id) {
+        return Err("the cover must match this smart album's rules".into());
+    }
+    conn.execute(
+        "UPDATE smart_albums SET cover_media_id = ?2, updated_at = ?3 WHERE id = ?1",
+        params![album_id, media_id, chrono::Utc::now().to_rfc3339()],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 

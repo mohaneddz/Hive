@@ -5,12 +5,12 @@ import type { MediaItem } from "@/types/media";
 import { cn } from "@/utils/cn";
 
 const COLUMN_CLASSES: Record<number, string> = {
-  3: "grid-cols-3",
-  4: "grid-cols-4",
-  5: "grid-cols-5",
-  6: "grid-cols-6",
-  7: "grid-cols-7",
-  8: "grid-cols-8",
+  3: "grid-cols-2 lg:grid-cols-3",
+  4: "grid-cols-2 md:grid-cols-3 xl:grid-cols-4",
+  5: "grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5",
+  6: "grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6",
+  7: "grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7",
+  8: "grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8",
 };
 
 export function MediaGrid({

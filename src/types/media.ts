@@ -323,7 +323,9 @@ export interface AiStatus {
   llmModelLoaded: boolean;
   /** Whether each optional model is on disk — drives the Download button. */
   nsfwModelsReady: boolean;
+  nsfwModelLoaded: boolean;
   captionModelsReady: boolean;
+  captionModelLoaded: boolean;
 }
 
 export interface DuplicateGroup {
