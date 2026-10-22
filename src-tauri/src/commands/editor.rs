@@ -4,7 +4,7 @@ use crate::models::{EditOps, MediaItem};
 use crate::state::AppState;
 use crate::{indexing, thumbnails};
 use image::{DynamicImage, ImageFormat};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 
@@ -123,8 +123,7 @@ fn apply_ops(image: DynamicImage, ops: &EditOps) -> DynamicImage {
     adjust_colour(image, ops)
 }
 
-fn write_image(image: &DynamicImage, target: &Path) -> Result<(), String> {
-    let format = ImageFormat::from_path(target).unwrap_or(ImageFormat::Jpeg);
+fn write_image(image: &DynamicImage, target: &Path, format: ImageFormat) -> Result<(), String> {
 
     if format == ImageFormat::Jpeg {
         // JPEG has no alpha channel, and the encoder needs an explicit quality.
@@ -172,8 +171,11 @@ pub fn apply_edits(
     media_id: String,
     ops: EditOps,
     mode: String,
+    title: Option<String>,
+    description: Option<String>,
+    taken_at_override: Option<String>,
 ) -> Result<MediaItem, String> {
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let mut conn = state.conn.lock().map_err(|e| e.to_string())?;
 
     let (source_path, filename, folder_id, taken_at): (String, String, String, Option<String>) = conn
         .query_row(
@@ -205,49 +207,55 @@ pub fn apply_edits(
         other => return Err(format!("Unknown save mode: {other}")),
     };
 
-    write_image(&edited, &target)?;
+    let staged = target.with_file_name(format!(".hive-edit-{}.tmp", uuid::Uuid::new_v4()));
+    let format = ImageFormat::from_path(&target).unwrap_or(ImageFormat::Jpeg);
+    if let Err(error) = write_image(&edited, &staged, format) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(error);
+    }
+    let backup = target.with_file_name(format!(".hive-original-{}.tmp", uuid::Uuid::new_v4()));
+    if mode == "overwrite" {
+        std::fs::rename(&target, &backup).map_err(|error| {
+            let _ = std::fs::remove_file(&staged);
+            error.to_string()
+        })?;
+    }
+    if let Err(error) = std::fs::rename(&staged, &target) {
+        if mode == "overwrite" { let _ = std::fs::rename(&backup, &target); }
+        let _ = std::fs::remove_file(&staged);
+        return Err(error.to_string());
+    }
 
-    // Re-index so size, dimensions and hash match what is now on disk.
-    let indexed = indexing::index_file(&conn, &folder_id, &target).map_err(|e| e.to_string())?;
-    let edited_id = match indexed {
-        Some(file) => file.item.id,
-        // An overwrite that somehow produced identical bytes leaves the row alone.
-        None => conn
-            .query_row(
+    let database_result = (|| -> Result<String, String> {
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let indexed = indexing::index_file_force(&tx, &folder_id, &target).map_err(|e| e.to_string())?;
+        let edited_id = match indexed {
+            Some(file) => file.item.id,
+            None => tx.query_row(
                 "SELECT id FROM media_items WHERE path = ?1",
                 params![target.to_string_lossy()],
                 |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?,
-    };
-
-    preserve_extracted_metadata(&conn, &edited_id, taken_at)?;
-    let _ = thumbnails::generate_for_image(&conn, &state.app_data_dir, &edited_id, &target);
-    conn.execute(
-        "UPDATE media_items SET edited_at = ?1 WHERE id = ?2",
-        params![now, edited_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    // A copy inherits the description the user wrote for the original.
-    if mode == "copy" {
-        let carried: Option<(Option<String>, Option<String>)> = conn
-            .query_row(
-                "SELECT title, description FROM media_items WHERE id = ?1",
-                params![media_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-        if let Some((title, description)) = carried {
-            conn.execute(
-                "UPDATE media_items SET title = ?1, description = ?2 WHERE id = ?3",
-                params![title, description, edited_id],
-            )
-            .map_err(|e| e.to_string())?;
+            ).map_err(|e| e.to_string())?,
+        };
+        preserve_extracted_metadata(&tx, &edited_id, taken_at)?;
+        let clean = |value: Option<String>| value.map(|text| text.trim().to_string()).filter(|text| !text.is_empty());
+        tx.execute(
+            "UPDATE media_items SET edited_at = ?1, title = ?2, description = ?3, taken_at_override = ?4 WHERE id = ?5",
+            params![now, clean(title), clean(description), clean(taken_at_override), edited_id],
+        ).map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(edited_id)
+    })();
+    let edited_id = match database_result {
+        Ok(id) => id,
+        Err(error) => {
+            let _ = std::fs::remove_file(&target);
+            if mode == "overwrite" { let _ = std::fs::rename(&backup, &target); }
+            return Err(error);
         }
-    }
-
+    };
+    if mode == "overwrite" { let _ = std::fs::remove_file(&backup); }
+    let _ = thumbnails::generate_from_decoded_image(&conn, &state.app_data_dir, &edited_id, &edited);
     let item = row_to_media_item(&conn, &edited_id).map_err(|e| e.to_string())?;
     let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
     Ok(item)

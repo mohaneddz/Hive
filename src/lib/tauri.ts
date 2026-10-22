@@ -190,8 +190,8 @@ export function parentDirectory(path: string): Promise<string | null> {
  * `"copy"` writes `name (edited).ext` beside the original and leaves it intact;
  * `"overwrite"` replaces it, keeping favorites, albums and flags.
  */
-export function applyEdits(mediaId: string, ops: EditOps, mode: SaveMode): Promise<MediaItem> {
-  return invoke("apply_edits", { mediaId, ops, mode });
+export function applyEdits(mediaId: string, ops: EditOps, mode: SaveMode, title: string | null, description: string | null, takenAtOverride: string | null): Promise<MediaItem> {
+  return invoke("apply_edits", { mediaId, ops, mode, title, description, takenAtOverride });
 }
 
 /** Stored by Hive, never written into the photo file. */

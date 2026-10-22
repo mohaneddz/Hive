@@ -267,9 +267,8 @@ export function EditorPage() {
     if (!id) return;
     setSaving(true);
     try {
-      const result = await applyEdits(id, ops, mode);
-      await updateMediaMetadata(
-        result.id,
+      const result = await applyEdits(
+        id, ops, mode,
         title.trim() || null,
         description.trim() || null,
         takenAtOverride ? new Date(takenAtOverride).toISOString() : null,
