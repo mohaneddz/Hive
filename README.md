@@ -28,15 +28,15 @@ Built with **Tauri, React, TypeScript, Tailwind CSS, SQLite, and a local ONNX/Ca
 
 - **Gallery & Timeline** — paginated grid view with live indexing progress, folder filters, and an
   undated-photos bucket
-- **Viewer** — zoom/pan/rotate, slideshow, filmstrip, info drawer, context menu
+- **Viewer** — image zoom/pan/rotate, video playback, slideshow, filmstrip, info drawer, context menu
 - **Search** — exact search (SQLite FTS5 over filename/camera/OCR text) and semantic search
-  (CLIP ViT-B/32 text-to-image), with a gallery chat panel alongside results
+  (CLIP ViT-B/32 text-to-image), with server-side filters, pagination, and a gallery chat panel
 - **People** — on-device face detection (UltraFace) and recognition (ArcFace) with incremental
   clustering, rename, and a per-person photo grid
 - **Places** — GPS-clustered map view with zoom/pan/fullscreen and optional reverse-geocoded place
   names, shown even before any photos are geotagged
 - **Collections** — manual albums plus rule-based smart views (favorites, hidden, archive) and
-  auto-groups (timeline events, trips)
+  auto-groups (timeline events, trips); auto-tags can be corrected in the viewer
 - **Duplicate detection** — perceptual-hash + union-find clustering to surface near-duplicate photos
 - **Editor** — crop, rotate, filters, exposure/color adjustment, and metadata editing
 - **Utilities** — storage analyzer, library health scan, blur detection, batch rename/convert/compress,
@@ -44,10 +44,11 @@ Built with **Tauri, React, TypeScript, Tailwind CSS, SQLite, and a local ONNX/Ca
 - **Trash** — restore, permanently delete, or empty
 - **Gallery chat** — a local LLM (Qwen2.5-1.5B-Instruct GGUF via `candle`, pure Rust) answers questions
   grounded in retrieved photo metadata (filename, date, camera, OCR text)
+- **Optional AI enrichment** — auto-tags, captions, aesthetic ranking, best-photo selection, and
+  sensitive-content filtering run locally after their models are downloaded
 - **Explorer** — a real drive/folder browser to pick and watch folders, with incremental reindexing on
   file changes
-- All AI models (CLIP, OCR, faces, chat LLM — roughly 150MB/96MB/67MB/1.1GB) are off by default and
-  downloaded on demand from Settings; everything runs fully offline once downloaded
+- AI models are downloaded on demand from Settings; enrichment runs locally after download
 
 ---
 
@@ -120,7 +121,7 @@ src-tauri/
 - Rust toolchain
 - Tauri system dependencies for your operating system
 - `ffmpeg` on PATH (optional — enables video thumbnails; without it Hive falls back to a
-  placeholder icon)
+  placeholder icon, and helps preview HEIC/RAW files)
 
 ### Install and run
 
@@ -152,8 +153,9 @@ pnpm tauri dev    # Run the desktop app
 
 ## Current Status
 
-Actively developed, not yet at a tagged release (`0.1.0`). Core library management (indexing,
-search, people, places, collections, duplicates, editor, utilities, trash) is functional end to end.
-The main known gap is Rania's original AI wishlist — auto-tagging, image captions, best-photo
-selection, aesthetic ranking, and sensitive-content detection are not built yet; event/trip
-clustering and blur detection are done without needing an ML model for them.
+Actively developed at `0.1.0`; there is no tagged release or installer QA sign-off yet. The core
+library, AI auto-tagging, captions, best-photo selection, aesthetic ranking, and sensitive-content
+filtering have implementations. Some camera RAW/HEIC previews and video thumbnails need system
+`ffmpeg`; video playback depends on codecs available to the operating system WebView. Editing
+uncommon formats remains limited by the Rust image decoder. See [the media pipeline inventory](docs/media-pipeline.md)
+for format and performance details. Files in `docs/state/` are dated historical snapshots.
