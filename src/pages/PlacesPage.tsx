@@ -5,13 +5,12 @@ import {
   ExternalLink,
   Globe,
   Loader2,
-  LocateFixed,
   Maximize,
   MapPin,
   Minimize,
-  Minus,
-  Plus,
 } from "lucide-react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 import { Card } from "@/components/ui/Card";
 import { PageError, PageSkeleton } from "@/components/ui/AsyncState";
@@ -38,16 +37,20 @@ const ZOOM_LEVELS = [
   { label: "Street", precision: 3 },
 ];
 
-const MIN_MAP_ZOOM = 1;
-const MAX_MAP_ZOOM = 6;
+const OSM_TILES = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const CARTO_DARK_TILES =
+  "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+
+function isDarkMode() {
+  return document.documentElement.classList.contains("dark");
+}
 
 /**
- * Plots the pins on an equirectangular projection: longitude maps linearly to x,
- * latitude to y. No tiles are fetched — a local-first gallery should not need the
- * network to show you where your photos were taken. Zoom and pan are real,
- * client-side transforms of that same projection, not a tile viewer.
+ * Interactive Leaflet world map with OpenStreetMap / CartoDB dark tiles.
+ * Renders CircleMarkers at each PlaceGroup's lat/lon. No custom icon images
+ * are needed, so Vite asset handling is not a concern.
  */
-function MiniMap({
+function LeafletMap({
   places,
   activeId,
   onSelect,
@@ -56,49 +59,19 @@ function MiniMap({
   activeId: string | null;
   onSelect: (place: PlaceGroup) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const mapRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const markersRef = useRef<Map<string, L.CircleMarker>>(new Map());
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // Track fullscreen changes
   useEffect(() => {
     const onChange = () => setIsFullscreen(document.fullscreenElement === frameRef.current);
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
-
-  const maxCount = Math.max(...places.map((place) => place.count), 1);
-
-  const zoomIn = () => setZoom((z) => Math.min(MAX_MAP_ZOOM, z + 0.75));
-  const zoomOut = () =>
-    setZoom((z) => {
-      const next = Math.max(MIN_MAP_ZOOM, z - 0.75);
-      if (next === MIN_MAP_ZOOM) setPan({ x: 0, y: 0 });
-      return next;
-    });
-  const recenter = () => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  };
-
-  const handleWheel = (event: React.WheelEvent) => {
-    event.preventDefault();
-    if (event.deltaY < 0) zoomIn();
-    else zoomOut();
-  };
-
-  const handleMouseDown = (event: React.MouseEvent) => {
-    if (event.button !== 0 || zoom <= MIN_MAP_ZOOM) return;
-    setDragging(true);
-    setDragStart({ x: event.clientX - pan.x, y: event.clientY - pan.y });
-  };
-  const handleMouseMove = (event: React.MouseEvent) => {
-    if (!dragging) return;
-    setPan({ x: event.clientX - dragStart.x, y: event.clientY - dragStart.y });
-  };
-  const stopDragging = () => setDragging(false);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -108,70 +81,107 @@ function MiniMap({
     }
   };
 
+  // Initialise map once
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const map = L.map(containerRef.current, {
+      zoomControl: true,
+      attributionControl: true,
+    });
+
+    mapRef.current = map;
+
+    const tileUrl = isDarkMode() ? CARTO_DARK_TILES : OSM_TILES;
+    const tile = L.tileLayer(tileUrl, {
+      attribution:
+        isDarkMode()
+          ? '&copy; <a href="https://carto.com/">CartoDB</a>'
+          : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 18,
+    }).addTo(map);
+    tileLayerRef.current = tile;
+
+    map.setView([20, 0], 2);
+
+    // Dark-mode observer — swap tiles when .dark is toggled on <html>
+    const observer = new MutationObserver(() => {
+      const dark = isDarkMode();
+      const url = dark ? CARTO_DARK_TILES : OSM_TILES;
+      const attribution = dark
+        ? '&copy; <a href="https://carto.com/">CartoDB</a>'
+        : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+      if (tileLayerRef.current) {
+        tileLayerRef.current.remove();
+      }
+      const newTile = L.tileLayer(url, { attribution, maxZoom: 18 }).addTo(map);
+      tileLayerRef.current = newTile;
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => {
+      observer.disconnect();
+      map.remove();
+      mapRef.current = null;
+      tileLayerRef.current = null;
+      markersRef.current.clear();
+    };
+  }, []);
+
+  // Add / refresh markers whenever places or activeId changes
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Remove existing markers
+    markersRef.current.forEach((m) => m.remove());
+    markersRef.current.clear();
+
+    if (places.length === 0) return;
+
+    const maxCount = Math.max(...places.map((p) => p.count), 1);
+    const bounds: [number, number][] = [];
+
+    places.forEach((place) => {
+      const isActive = place.id === activeId;
+      const radius = 5 + (place.count / maxCount) * 10;
+
+      const marker = L.circleMarker([place.lat, place.lon], {
+        radius,
+        color: isActive ? "#fff" : "#f5a623",
+        weight: isActive ? 2 : 1,
+        fillColor: "#f5a623",
+        fillOpacity: 0.8,
+      }).addTo(map);
+
+      const label = `${formatCoordinates(place.lat, place.lon)} · ${formatCount(place.count, "photo")}`;
+      marker.bindTooltip(label, { direction: "top", offset: [0, -radius] });
+
+      marker.on("click", () => onSelect(place));
+      markersRef.current.set(place.id, marker);
+      bounds.push([place.lat, place.lon]);
+    });
+
+    if (bounds.length > 0) {
+      map.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [40, 40], maxZoom: 10 });
+    }
+  }, [places, activeId, onSelect]);
+
   return (
     <Card className="mt-7 overflow-hidden">
       <div
         ref={frameRef}
-        className={cn("relative bg-shell", isFullscreen && "flex h-screen flex-col justify-center")}
+        className={cn("relative", isFullscreen && "flex h-screen flex-col justify-center")}
       >
-        <svg
-          viewBox="0 0 360 180"
-          role="img"
-          aria-label="Photo locations"
-          onWheel={handleWheel}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={stopDragging}
-          onMouseLeave={stopDragging}
-          className={cn("block h-auto w-full select-none", zoom > 1 && (dragging ? "cursor-grabbing" : "cursor-grab"))}
-        >
-          <g
-            style={{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-              transformOrigin: "180px 90px",
-              transition: dragging ? "none" : "transform 150ms ease-out",
-            }}
-          >
-            {/* Graticule every 30° gives a sense of scale without any map data. */}
-            {[30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((x) => (
-              <line key={`v${x}`} x1={x} y1={0} x2={x} y2={180} stroke="currentColor" strokeWidth={0.3} className="text-ink-muted/25" />
-            ))}
-            {[30, 60, 90, 120, 150].map((y) => (
-              <line key={`h${y}`} x1={0} y1={y} x2={360} y2={y} stroke="currentColor" strokeWidth={0.3} className="text-ink-muted/25" />
-            ))}
-            <line x1={0} y1={90} x2={360} y2={90} stroke="currentColor" strokeWidth={0.7} className="text-ink-muted/45" />
-
-            {/* Lightweight offline land silhouettes provide geographic context
-                without fetching tiles or sending photo coordinates anywhere. */}
-            <g className="fill-ink/[.09] stroke-ink/20" strokeWidth={0.45}>
-              <path d="M18 48 29 34 48 28 66 33 77 43 70 52 80 59 70 70 59 72 52 83 43 80 38 68 25 62Z" />
-              <path d="M76 81 88 86 96 103 93 121 86 142 78 151 73 133 68 112 70 94Z" />
-              <path d="M94 25 109 19 120 27 116 40 102 43 92 35Z" />
-              <path d="M166 48 177 38 197 37 209 42 224 39 246 45 267 43 288 52 310 55 330 68 319 77 298 75 284 82 267 76 250 84 232 77 214 82 202 72 186 69 174 60Z" />
-              <path d="M177 70 194 72 207 84 204 105 194 126 182 132 171 112 166 91Z" />
-              <path d="M292 119 306 111 324 116 333 128 323 140 305 143 291 134Z" />
-              <path d="M211 136 216 142 213 154 208 146Z" />
-            </g>
-
-            {places.map((place) => {
-              const x = place.lon + 180;
-              const y = 90 - place.lat;
-              const radius = 2 + (place.count / maxCount) * 5;
-              const isActive = place.id === activeId;
-              return (
-                <g key={place.id} onClick={() => onSelect(place)} className="cursor-pointer">
-                  <circle cx={x} cy={y} r={radius + 3} className="fill-honey/20" />
-                  <circle
-                    cx={x}
-                    cy={y}
-                    r={radius}
-                    className={cn("fill-honey stroke-[0.6]", isActive ? "stroke-ink" : "stroke-transparent")}
-                  />
-                </g>
-              );
-            })}
-          </g>
-        </svg>
+        {/* Leaflet map container */}
+        <div
+          ref={containerRef}
+          style={{ height: isFullscreen ? "100vh" : "420px", width: "100%" }}
+        />
 
         {places.length === 0 && (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
@@ -180,28 +190,8 @@ function MiniMap({
           </div>
         )}
 
-        <div className="absolute bottom-3 left-3 flex flex-col gap-1 rounded-xl border border-ink/[.1] bg-panel/90 p-1 shadow-lg backdrop-blur">
-          <button
-            onClick={zoomIn}
-            disabled={zoom >= MAX_MAP_ZOOM}
-            className="icon-button !size-8 border-0 disabled:opacity-30"
-            aria-label="Zoom in"
-            title="Zoom in"
-          >
-            <Plus size={14} />
-          </button>
-          <button
-            onClick={zoomOut}
-            disabled={zoom <= MIN_MAP_ZOOM}
-            className="icon-button !size-8 border-0 disabled:opacity-30"
-            aria-label="Zoom out"
-            title="Zoom out"
-          >
-            <Minus size={14} />
-          </button>
-          <button onClick={recenter} className="icon-button !size-8 border-0" aria-label="Recenter" title="Recenter">
-            <LocateFixed size={14} />
-          </button>
+        {/* Custom fullscreen toggle overlay */}
+        <div className="absolute bottom-[52px] right-2 z-[1000] flex flex-col gap-1 rounded-xl border border-ink/[.1] bg-panel/90 p-1 shadow-lg backdrop-blur">
           <button
             onClick={toggleFullscreen}
             className="icon-button !size-8 border-0"
@@ -336,7 +326,7 @@ export function PlacesPage() {
                 onClick={() => setPrecision(level.precision)}
                 className={cn(
                   "rounded-lg px-3 py-1.5 text-xs font-bold text-ink-muted transition",
-                  precision === level.precision && "bg-cream text-honey-deep",
+                  precision === level.precision && "bg-honey/20 text-honey-deep dark:text-honey",
                 )}
               >
                 {level.label}
@@ -351,7 +341,7 @@ export function PlacesPage() {
       {loading && places.length === 0 && !failure ? (
         <PageSkeleton cards={4} />
       ) : (
-        !failure && <MiniMap places={places} activeId={null} onSelect={openPlace} />
+        !failure && <LeafletMap places={places} activeId={null} onSelect={openPlace} />
       )}
 
       {!loading && places.length === 0 && (
