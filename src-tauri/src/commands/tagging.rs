@@ -11,7 +11,7 @@ use crate::ai::clip::{cosine_similarity, bytes_to_vector, ClipModel};
 use crate::ai::model_manager;
 use crate::commands::media::row_to_media_item;
 use crate::jobs;
-use crate::models::MediaItem;
+use crate::models::{MediaItem, MediaPage};
 use crate::state::AppState;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -102,6 +102,7 @@ const TAG_VOCABULARY: &[(&str, &str)] = &[
 pub struct TagResult {
     pub tag: String,
     pub confidence: f32,
+    pub source: String,
 }
 
 /// Summary of a tag across the library.
@@ -134,6 +135,7 @@ fn tag_image(
         .map(|(tag, embed)| TagResult {
             tag: tag.to_string(),
             confidence: cosine_similarity(image_embed, embed),
+            source: "auto".into(),
         })
         .filter(|r| r.confidence >= TAG_THRESHOLD)
         .collect();
@@ -159,7 +161,8 @@ fn store_tags(conn: &Connection, media_id: &str, tags: &[TagResult]) -> rusqlite
              VALUES (?1, ?2, ?3, ?4, 'auto', ?5)
              ON CONFLICT(media_id, tag) DO UPDATE SET
                 confidence = excluded.confidence,
-                created_at = excluded.created_at",
+                created_at = excluded.created_at
+             WHERE tags.source = 'auto'",
             params![id, media_id, tag.tag, tag.confidence, now],
         )?;
     }
@@ -172,7 +175,7 @@ pub fn get_tags(state: State<'_, AppState>, media_id: String) -> Result<Vec<TagR
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT tag, confidence FROM tags WHERE media_id = ?1 ORDER BY confidence DESC",
+            "SELECT tag, confidence, source FROM tags WHERE media_id = ?1 AND source != 'removed' ORDER BY confidence DESC",
         )
         .map_err(|e| e.to_string())?;
     let tags = stmt
@@ -180,12 +183,39 @@ pub fn get_tags(state: State<'_, AppState>, media_id: String) -> Result<Vec<TagR
             Ok(TagResult {
                 tag: r.get(0)?,
                 confidence: r.get(1)?,
+                source: r.get(2)?,
             })
         })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
     Ok(tags)
+}
+
+#[tauri::command]
+pub fn add_manual_tag(state: State<'_, AppState>, media_id: String, tag: String) -> Result<(), String> {
+    let tag = tag.trim().to_lowercase();
+    if tag.is_empty() || tag.chars().count() > 64 {
+        return Err("Tag must contain 1 to 64 characters".into());
+    }
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO tags (id, media_id, tag, confidence, source, created_at)
+         VALUES (?1, ?2, ?3, 1.0, 'manual', ?4)
+         ON CONFLICT(media_id, tag) DO UPDATE SET confidence = 1.0, source = 'manual'",
+        params![uuid::Uuid::new_v4().to_string(), media_id, tag, chrono::Utc::now().to_rfc3339()],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_tag(state: State<'_, AppState>, media_id: String, tag: String) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE tags SET source = 'removed' WHERE media_id = ?1 AND tag = ?2",
+        params![media_id, tag],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Lists all unique tags with their counts, sorted by count descending.
@@ -197,11 +227,11 @@ pub fn list_all_tags(state: State<'_, AppState>) -> Result<Vec<TagSummary>, Stri
             "SELECT t.tag, COUNT(*) as cnt,
                     (SELECT t2.media_id FROM tags t2
                      JOIN media_items m ON m.id = t2.media_id
-                     WHERE t2.tag = t.tag AND m.is_trashed = 0
+                     WHERE t2.tag = t.tag AND t2.source != 'removed' AND m.is_trashed = 0 AND m.is_hidden = 0 AND m.is_archived = 0
                      ORDER BY t2.confidence DESC LIMIT 1) as cover
              FROM tags t
              JOIN media_items m ON m.id = t.media_id
-             WHERE m.is_trashed = 0
+             WHERE m.is_trashed = 0 AND m.is_hidden = 0 AND m.is_archived = 0 AND t.source != 'removed'
              GROUP BY t.tag
              ORDER BY cnt DESC",
         )
@@ -232,7 +262,7 @@ pub fn list_media_by_tag(
         .prepare(
             "SELECT DISTINCT m.id FROM media_items m
              JOIN tags t ON t.media_id = m.id
-             WHERE t.tag = ?1 AND m.is_trashed = 0
+             WHERE t.tag = ?1 AND t.source != 'removed' AND m.is_trashed = 0 AND m.is_hidden = 0 AND m.is_archived = 0
              ORDER BY t.confidence DESC
              LIMIT ?2",
         )
@@ -247,6 +277,59 @@ pub fn list_media_by_tag(
         .map(|id| row_to_media_item(&conn, id))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_media_by_tag_page(
+    state: State<'_, AppState>,
+    tag: String,
+    limit: i64,
+    offset: i64,
+) -> Result<MediaPage, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let total: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM tags t JOIN media_items m ON m.id = t.media_id
+         WHERE t.tag = ?1 AND t.source != 'removed' AND m.is_trashed = 0 AND m.is_hidden = 0 AND m.is_archived = 0",
+        params![tag], |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+    let mut statement = conn.prepare(
+        "SELECT m.id FROM media_items m JOIN tags t ON t.media_id = m.id
+         WHERE t.tag = ?1 AND t.source != 'removed' AND m.is_trashed = 0 AND m.is_hidden = 0 AND m.is_archived = 0
+         ORDER BY t.confidence DESC, m.id LIMIT ?2 OFFSET ?3",
+    ).map_err(|e| e.to_string())?;
+    let ids = statement.query_map(params![tag, limit.clamp(1, 200), offset.max(0)], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    let items = ids.iter().map(|id| row_to_media_item(&conn, id)).collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+    Ok(MediaPage { items, total })
+}
+
+#[cfg(test)]
+mod tag_tests {
+    use super::*;
+
+    #[test]
+    fn auto_tagging_preserves_manual_corrections_and_suppression() {
+        let path = std::env::temp_dir().join(format!("hive_tags_fixture_{}.db", uuid::Uuid::new_v4()));
+        let conn = crate::db::open(&path).unwrap();
+        conn.execute("INSERT INTO folders (id, path, name, added_at) VALUES ('folder', 'fixture', 'Fixture', '2026-01-01')", []).unwrap();
+        conn.execute("INSERT INTO media_items (id, folder_id, path, filename, hash, size, mime_type, media_type, created_at, modified_at, indexed_at)
+                      VALUES ('image', 'folder', 'fixture/image.jpg', 'image.jpg', 'hash', 1, 'image/jpeg', 'image', '2026-01-01', '2026-01-01', '2026-01-01')", []).unwrap();
+        conn.execute("INSERT INTO tags (id, media_id, tag, confidence, source, created_at) VALUES ('manual', 'image', 'dog', 1.0, 'manual', '2026-01-01')", []).unwrap();
+        conn.execute("INSERT INTO tags (id, media_id, tag, confidence, source, created_at) VALUES ('removed', 'image', 'cat', 0.0, 'removed', '2026-01-01')", []).unwrap();
+        let candidates = [
+            TagResult { tag: "dog".into(), confidence: 0.8, source: "auto".into() },
+            TagResult { tag: "cat".into(), confidence: 0.8, source: "auto".into() },
+        ];
+        store_tags(&conn, "image", &candidates).unwrap();
+        let sources: Vec<String> = {
+            let mut statement = conn.prepare("SELECT source FROM tags WHERE media_id = 'image' ORDER BY tag").unwrap();
+            let result = statement.query_map([], |row| row.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
+            result
+        };
+        assert_eq!(sources, vec!["removed", "manual"]);
+        drop(conn);
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// Backfill: auto-tag every image that has a CLIP embedding but no tags yet.

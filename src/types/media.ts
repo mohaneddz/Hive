@@ -348,6 +348,7 @@ export interface PersonSummary {
 export interface TagResult {
   tag: string;
   confidence: number;
+  source: string;
 }
 
 export interface TagSummary {

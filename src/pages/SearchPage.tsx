@@ -1,5 +1,5 @@
 import { Lock, Search, Sparkles, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { GalleryChatPanel } from "@/components/chat/GalleryChatPanel";
@@ -7,7 +7,7 @@ import { MediaCard } from "@/components/media/MediaCard";
 import { SavedSearchesPanel, type SavedSearch } from "@/components/search/SavedSearches";
 import { useAiStatus } from "@/hooks/useAiStatus";
 import { useClickOutside } from "@/hooks/useClickOutside";
-import { getMediaPage, isTauri, listPeople, getPersonMedia, searchMedia, semanticSearch } from "@/lib/tauri";
+import { isTauri, listPeople, listSearchCameras, searchLibrary, type SearchLibraryRequest } from "@/lib/tauri";
 import { GalleryPageHeader } from "@/pages/GalleryPageHeader";
 import type { MediaItem, MediaType, PersonSummary } from "@/types/media";
 import { cn } from "@/utils/cn";
@@ -28,23 +28,6 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "name", label: "Name" },
 ];
 
-function effectiveDate(item: MediaItem): Date | null {
-  const raw = item.takenAtOverride ?? item.takenAt ?? item.createdAt;
-  const date = new Date(raw);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function orientationOf(item: MediaItem): Orientation | null {
-  if (!item.width || !item.height) return null;
-  if (item.width === item.height) return "square";
-  return item.width > item.height ? "landscape" : "portrait";
-}
-
-function cameraLabel(item: MediaItem): string | null {
-  const label = [item.exif?.cameraMake, item.exif?.cameraModel].filter(Boolean).join(" ").trim();
-  return label || null;
-}
-
 export function SearchPage() {
   const [searchParams] = useSearchParams();
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
@@ -52,6 +35,8 @@ export function SearchPage() {
   const [favoritesOnly, setFavoritesOnly] = useState(() => searchParams.get("favorites") === "1");
   const [mode, setMode] = useState<"exact" | "semantic">("exact");
   const [items, setItems] = useState<MediaItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [debouncedQuery, setDebouncedQuery] = useState(query);
@@ -67,7 +52,23 @@ export function SearchPage() {
   const [sortBy, setSortBy] = useState<SortOption>("relevance");
 
   const [people, setPeople] = useState<PersonSummary[]>([]);
-  const [personMediaIds, setPersonMediaIds] = useState<Set<string> | null>(null);
+  const [cameraOptions, setCameraOptions] = useState<string[]>([]);
+  const searchGeneration = useRef(0);
+
+  const requestFor = (offset: number): SearchLibraryRequest => ({
+    query: debouncedQuery.trim(),
+    semantic: mode === "semantic" && Boolean(aiStatus?.modelsReady),
+    mediaType: mediaType === "all" ? null : mediaType,
+    favoritesOnly,
+    dateFrom: dateFrom || null,
+    dateTo: dateTo || null,
+    camera: camera === "all" ? null : camera,
+    personId: personId === "all" ? null : personId,
+    orientation: orientation === "all" ? null : orientation,
+    sort: sortBy,
+    limit: 100,
+    offset,
+  });
 
   useEffect(() => {
     const fromUrl = searchParams.get("q");
@@ -82,34 +83,27 @@ export function SearchPage() {
 
   useEffect(() => {
     let cancelled = false;
+    searchGeneration.current += 1;
     if (!isTauri()) {
       setItems([]);
+      setTotal(0);
       setLoading(false);
       setFailure(null);
       return;
     }
     setLoading(true);
     setFailure(null);
-    const trimmed = debouncedQuery.trim();
-
-    const request = !trimmed
-      ? getMediaPage({
-          limit: 500,
-          offset: 0,
-          mediaType: mediaType === "all" ? undefined : mediaType,
-          favoritesOnly: favoritesOnly || undefined,
-        }).then((page) => page.items)
-      : mode === "semantic" && aiStatus?.modelsReady
-        ? semanticSearch(trimmed)
-        : searchMedia(trimmed);
-
-    request
-      .then((results) => {
-        if (!cancelled) setItems(results);
+    searchLibrary(requestFor(0))
+      .then((page) => {
+        if (!cancelled) {
+          setItems(page.items);
+          setTotal(page.total);
+        }
       })
       .catch((cause) => {
         if (!cancelled) {
           setItems([]);
+          setTotal(0);
           setFailure(String(cause));
         }
       })
@@ -119,75 +113,29 @@ export function SearchPage() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery, mediaType, favoritesOnly, mode, aiStatus?.modelsReady]);
+  }, [debouncedQuery, mediaType, favoritesOnly, mode, aiStatus?.modelsReady, dateFrom, dateTo, camera, personId, orientation, sortBy]);
 
   useEffect(() => {
     if (isTauri() && aiStatus?.peopleCount) void listPeople().then(setPeople);
   }, [aiStatus?.peopleCount]);
 
   useEffect(() => {
-    if (personId === "all" || !isTauri()) {
-      setPersonMediaIds(null);
-      return;
-    }
-    let cancelled = false;
-    void getPersonMedia(personId).then((personItems) => {
-      if (!cancelled) setPersonMediaIds(new Set(personItems.map((item) => item.id)));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [personId]);
+    if (isTauri()) void listSearchCameras().then(setCameraOptions).catch(() => {});
+  }, []);
 
-  const cameraOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of items) {
-      const label = cameraLabel(item);
-      if (label) set.add(label);
-    }
-    return [...set].sort();
-  }, [items]);
-
-  const visible = useMemo(() => {
-    let list = items;
-    if (query.trim()) {
-      list = list.filter((item) => mediaType === "all" || item.mediaType === mediaType);
-      list = list.filter((item) => !favoritesOnly || item.isFavorite);
-    }
-    if (dateFrom) {
-      const from = new Date(dateFrom);
-      list = list.filter((item) => {
-        const date = effectiveDate(item);
-        return date !== null && date >= from;
-      });
-    }
-    if (dateTo) {
-      const to = new Date(dateTo);
-      to.setHours(23, 59, 59, 999);
-      list = list.filter((item) => {
-        const date = effectiveDate(item);
-        return date !== null && date <= to;
-      });
-    }
-    if (camera !== "all") {
-      list = list.filter((item) => cameraLabel(item) === camera);
-    }
-    if (personMediaIds) {
-      list = list.filter((item) => personMediaIds.has(item.id));
-    }
-    if (orientation !== "all") {
-      list = list.filter((item) => orientationOf(item) === orientation);
-    }
-    if (sortBy !== "relevance") {
-      list = [...list].sort((a, b) => {
-        if (sortBy === "name") return a.filename.localeCompare(b.filename);
-        const dateA = effectiveDate(a)?.getTime() ?? 0;
-        const dateB = effectiveDate(b)?.getTime() ?? 0;
-        return sortBy === "newest" ? dateB - dateA : dateA - dateB;
-      });
-    }
-    return list;
-  }, [items, query, mediaType, favoritesOnly, dateFrom, dateTo, camera, personMediaIds, orientation, sortBy]);
+  const loadMore = async () => {
+    if (loadingMore || items.length >= total) return;
+    const generation = searchGeneration.current;
+    setLoadingMore(true);
+    try {
+      const page = await searchLibrary(requestFor(items.length));
+      if (searchGeneration.current === generation) {
+        setItems((current) => [...current, ...page.items]);
+        setTotal(page.total);
+      }
+    } catch (cause) { if (searchGeneration.current === generation) setFailure(String(cause)); }
+    finally { setLoadingMore(false); }
+  };
 
   const activeDateRange = dateFrom || dateTo;
   const hasExtraFilters = activeDateRange || camera !== "all" || personId !== "all" || orientation !== "all";
@@ -392,7 +340,7 @@ export function SearchPage() {
       ) : (
         <>
           <div className="mt-6 flex items-center justify-between">
-            <p className="text-xs font-bold text-ink-muted">{visible.length} results</p>
+            <p className="text-xs font-bold text-ink-muted">{total} results</p>
             <select
               value={sortBy}
               onChange={(event) => setSortBy(event.target.value as SortOption)}
@@ -408,14 +356,19 @@ export function SearchPage() {
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-4">
-            {visible.map((item) => (
+            {items.map((item) => (
               <MediaCard key={item.id} item={item} />
             ))}
           </div>
-          {visible.length === 0 && (
+          {items.length === 0 && (
             <div className="mt-12 rounded-3xl border border-dashed border-ink/[.15] p-12 text-center text-sm text-ink-muted">
               No results match those filters.
             </div>
+          )}
+          {items.length < total && (
+            <button onClick={() => void loadMore()} disabled={loadingMore} className="mt-6 rounded-xl border border-ink/[.12] bg-panel px-4 py-2 text-sm font-semibold text-ink">
+              {loadingMore ? "Loading…" : `Show more (${items.length} of ${total})`}
+            </button>
           )}
         </>
       )}

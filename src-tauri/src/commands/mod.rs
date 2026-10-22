@@ -18,6 +18,7 @@ pub mod organize;
 pub mod places;
 pub mod preferences;
 pub mod quality;
+pub mod search;
 pub mod smart_albums;
 pub mod tagging;
 pub mod utilities;

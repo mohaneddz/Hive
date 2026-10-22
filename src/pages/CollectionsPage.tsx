@@ -47,7 +47,7 @@ import {
   isTauri,
   listAlbums,
   listAllTags,
-  listMediaByTag,
+  listMediaByTagPage,
   listSmartAlbums,
   setSmartAlbumCover,
   suggestSmartAlbums,
@@ -128,6 +128,8 @@ export function CollectionsPage() {
   const [tagSummaries, setTagSummaries] = useState<TagSummary[]>([]);
   const { stats } = useLibraryStats();
   const [items, setItems] = useState<MediaItem[]>([]);
+  const [collectionTotal, setCollectionTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -173,7 +175,9 @@ export function CollectionsPage() {
     setLoading(true);
     setFailure(null);
     try {
-      setItems(await listMediaByTag(tag));
+      const page = await listMediaByTagPage(tag, 0);
+      setItems(page.items);
+      setCollectionTotal(page.total);
     } catch (cause) {
       setFailure(String(cause));
     } finally {
@@ -201,18 +205,42 @@ export function CollectionsPage() {
     try {
       const config = SMART_VIEWS[key];
       const page = await getMediaPage({
-        limit: 500,
+        limit: 100,
         offset: 0,
         scope: config.scope,
         favoritesOnly: config.favoritesOnly || undefined,
       });
       setItems(page.items);
+      setCollectionTotal(page.total);
     } catch (cause) {
       setFailure(String(cause));
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const loadMoreCollection = async () => {
+    if (loadingMore || items.length >= collectionTotal) return;
+    setLoadingMore(true);
+    try {
+      const page = tagParam
+        ? await listMediaByTagPage(tagParam, items.length)
+        : isSmartView(view)
+          ? await getMediaPage({ limit: 100, offset: items.length, scope: SMART_VIEWS[view].scope, favoritesOnly: SMART_VIEWS[view].favoritesOnly || undefined })
+          : null;
+      if (page) {
+        setItems((current) => [...current, ...page.items]);
+        setCollectionTotal(page.total);
+      }
+    } catch (cause) { setFailure(String(cause)); }
+    finally { setLoadingMore(false); }
+  };
+
+  const moreButton = items.length < collectionTotal ? (
+    <button onClick={() => void loadMoreCollection()} disabled={loadingMore} className="mt-6 rounded-xl border border-ink/[.12] bg-panel px-4 py-2 text-sm font-semibold text-ink">
+      {loadingMore ? "Loading…" : `Show more (${items.length} of ${collectionTotal})`}
+    </button>
+  ) : null;
 
   useEffect(() => {
     if (tagParam) {
@@ -391,10 +419,10 @@ export function CollectionsPage() {
           <ArrowLeft size={14} /> All collections
         </button>
         <GalleryPageHeader
-          eyebrow="AI Tag"
+          eyebrow="Tag"
           title={`#${tagParam}.`}
           description={
-            loading ? "Loading photos..." : `${formatCount(items.length, "photo")} tagged with #${tagParam}.`
+            loading ? "Loading photos..." : `${formatCount(collectionTotal, "photo")} tagged with #${tagParam}.`
           }
           action={collectionActions}
         />
@@ -406,7 +434,7 @@ export function CollectionsPage() {
             onDismiss={best.clear}
           />
         )}
-        {selectionNote("Photos carry this tag because the AI gave it to them, so there is nothing to remove by hand.")}
+        {selectionNote("Tags can be added or removed in a photo's info drawer.")}
 
         {failure ? (
           <PageError message={failure} onRetry={() => void loadTagView(tagParam)} />
@@ -419,12 +447,12 @@ export function CollectionsPage() {
             description="Run auto-tagging in Settings or tag photos to see them here."
           />
         ) : (
-          <MediaGrid
+          <><MediaGrid
             items={items}
             className="mt-7"
             onFavoriteChange={applyFavorite}
             {...collectionGridProps}
-          />
+          />{moreButton}</>
         )}
       </div>
     );
@@ -546,7 +574,7 @@ export function CollectionsPage() {
           eyebrow="Collections"
           title={`${config.label}.`}
           description={
-            loading ? config.description : `${formatCount(items.length, "item")}. ${config.description}`
+            loading ? config.description : `${formatCount(collectionTotal, "item")}. ${config.description}`
           }
         />
         {failure ? (
@@ -560,7 +588,7 @@ export function CollectionsPage() {
             description={config.description}
           />
         ) : (
-          <MediaGrid items={items} className="mt-7" onFavoriteChange={applyFavorite} />
+          <><MediaGrid items={items} className="mt-7" onFavoriteChange={applyFavorite} />{moreButton}</>
         )}
       </div>
     );

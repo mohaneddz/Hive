@@ -429,6 +429,29 @@ export function searchMedia(query: string, limit = 200): Promise<MediaItem[]> {
   return invoke("search_media", { query, limit });
 }
 
+export type SearchLibraryRequest = {
+  query: string;
+  semantic: boolean;
+  mediaType: string | null;
+  favoritesOnly: boolean;
+  dateFrom: string | null;
+  dateTo: string | null;
+  camera: string | null;
+  personId: string | null;
+  orientation: string | null;
+  sort: string;
+  limit: number;
+  offset: number;
+};
+
+export function searchLibrary(request: SearchLibraryRequest): Promise<MediaPage> {
+  return invoke("search_library", { request });
+}
+
+export function listSearchCameras(): Promise<string[]> {
+  return invoke("list_search_cameras");
+}
+
 export async function readMediaUrl(
   mediaId: string,
   variant: "sm" | "md" | "original",
@@ -538,12 +561,24 @@ export function getTags(mediaId: string): Promise<TagResult[]> {
   return invoke("get_tags", { mediaId });
 }
 
+export function addManualTag(mediaId: string, tag: string): Promise<void> {
+  return invoke("add_manual_tag", { mediaId, tag });
+}
+
+export function removeTag(mediaId: string, tag: string): Promise<void> {
+  return invoke("remove_tag", { mediaId, tag });
+}
+
 export function listAllTags(): Promise<TagSummary[]> {
   return invoke("list_all_tags");
 }
 
 export function listMediaByTag(tag: string, limit = 300): Promise<MediaItem[]> {
   return invoke("list_media_by_tag", { tag, limit });
+}
+
+export function listMediaByTagPage(tag: string, offset: number, limit = 100): Promise<MediaPage> {
+  return invoke("list_media_by_tag_page", { tag, offset, limit });
 }
 
 export function backfillTags(): Promise<void> {

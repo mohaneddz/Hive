@@ -31,6 +31,8 @@ export function AlbumDetailPage() {
   const navigate = useNavigate();
   const [album, setAlbum] = useState<Album | null>(null);
   const [items, setItems] = useState<MediaItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -52,16 +54,28 @@ export function AlbumDetailPage() {
     try {
       const [albumDetail, page] = await Promise.all([
         getAlbum(id),
-        getMediaPage({ limit: 500, offset: 0, albumId: id, scope: "all" }),
+        getMediaPage({ limit: 100, offset: 0, albumId: id, scope: "all" }),
       ]);
       setAlbum(albumDetail);
       setItems(page.items);
+      setTotal(page.total);
     } catch (cause) {
       setFailure(String(cause));
     } finally {
       setLoading(false);
     }
   }, [id]);
+
+  const loadMore = async () => {
+    if (!id || loadingMore || items.length >= total) return;
+    setLoadingMore(true);
+    try {
+      const page = await getMediaPage({ limit: 100, offset: items.length, albumId: id, scope: "all" });
+      setItems((current) => [...current, ...page.items]);
+      setTotal(page.total);
+    } catch (cause) { setFailure(String(cause)); }
+    finally { setLoadingMore(false); }
+  };
 
   useEffect(() => {
     void load();
@@ -90,10 +104,14 @@ export function AlbumDetailPage() {
     );
     if (!confirmed) return;
 
-    await Promise.all([...selected].map((mediaId) => removeMediaFromAlbum(id, mediaId)));
-    setItems((prev) => prev.filter((item) => !selected.has(item.id)));
-    setSelected(new Set());
-    setSelecting(false);
+    const ids = [...selected];
+    const outcomes = await Promise.allSettled(ids.map((mediaId) => removeMediaFromAlbum(id, mediaId)));
+    const succeeded = new Set(ids.filter((_, index) => outcomes[index].status === "fulfilled"));
+    setItems((prev) => prev.filter((item) => !succeeded.has(item.id)));
+    setTotal((current) => Math.max(0, current - succeeded.size));
+    setSelected(new Set(ids.filter((mediaId) => !succeeded.has(mediaId))));
+    if (succeeded.size === ids.length) setSelecting(false);
+    else await confirm(`${succeeded.size} of ${ids.length} items removed. The remaining items are still selected.`, { title: "Some items could not be removed", kind: "error" });
   };
 
   const exportSelected = async () => {
@@ -242,7 +260,7 @@ export function AlbumDetailPage() {
           action={<Button onClick={() => navigate(routes.gallery.path)}>Browse the gallery</Button>}
         />
       ) : (
-        <MediaGrid
+        <><MediaGrid
           items={items}
           className="mt-7"
           onFavoriteChange={applyFavorite}
@@ -271,7 +289,11 @@ export function AlbumDetailPage() {
                   );
                 }
           }
-        />
+        />{items.length < total && (
+          <button onClick={() => void loadMore()} disabled={loadingMore} className="mt-6 rounded-xl border border-ink/[.12] bg-panel px-4 py-2 text-sm font-semibold text-ink">
+            {loadingMore ? "Loading…" : `Show more (${items.length} of ${total})`}
+          </button>
+        )}</>
       )}
     </div>
   );

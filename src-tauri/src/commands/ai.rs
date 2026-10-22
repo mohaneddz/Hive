@@ -179,7 +179,7 @@ pub fn semantic_search(
         .prepare(
             "SELECT e.media_id, e.vector FROM embeddings e
              JOIN media_items m ON m.id = e.media_id
-             WHERE m.is_trashed = 0",
+             WHERE m.is_trashed = 0 AND m.is_hidden = 0 AND m.is_archived = 0",
         )
         .map_err(|e| e.to_string())?;
 

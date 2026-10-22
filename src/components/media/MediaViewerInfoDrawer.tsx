@@ -12,7 +12,7 @@ import {
   Tag,
   X,
 } from "lucide-react";
-import { getCaption, getTags, isTauri } from "@/lib/tauri";
+import { addManualTag, getCaption, getTags, isTauri, removeTag } from "@/lib/tauri";
 import type { MediaItem, TagResult } from "@/types/media";
 import { formatBytes, formatDateTime } from "@/utils/format";
 
@@ -38,6 +38,8 @@ export function MediaViewerInfoDrawer({
   onOpenFolder,
 }: MediaViewerInfoDrawerProps) {
   const [tags, setTags] = useState<TagResult[]>([]);
+  const [newTag, setNewTag] = useState("");
+  const [tagError, setTagError] = useState<string | null>(null);
   const [caption, setCaption] = useState<string | null>(null);
 
   useEffect(() => {
@@ -60,6 +62,23 @@ export function MediaViewerInfoDrawer({
   if (!isOpen) return null;
 
   const mp = calculateMegapixels(item.width, item.height);
+
+  const addTag = async () => {
+    try {
+      await addManualTag(item.id, newTag);
+      setTags(await getTags(item.id));
+      setNewTag("");
+      setTagError(null);
+    } catch (error) { setTagError(String(error)); }
+  };
+
+  const deleteTag = async (tag: string) => {
+    try {
+      await removeTag(item.id, tag);
+      setTags(await getTags(item.id));
+      setTagError(null);
+    } catch (error) { setTagError(String(error)); }
+  };
 
   return (
     <aside className="absolute right-0 top-0 bottom-0 z-40 w-80 border-l border-ink/[.4] bg-panel/95 p-5 shadow-2xl backdrop-blur-xl animate-in slide-in-from-right duration-200 flex flex-col gap-6 text-ink overflow-y-auto">
@@ -206,24 +225,28 @@ export function MediaViewerInfoDrawer({
         </div>
       ) : null}
 
-      {tags.length > 0 ? (
-        <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3">
           <h4 className="eyebrow flex items-center gap-1.5">
             <Tag size={13} className="text-honey" />
-            <span>AI Auto Tags</span>
+            <span>Tags</span>
           </h4>
           <div className="flex flex-wrap gap-1.5">
             {tags.map((t) => (
               <span
                 key={t.tag}
-                className="rounded-lg bg-honey/10 border border-honey/20 px-2 py-0.5 text-[11px] font-medium text-honey"
+                className="inline-flex items-center gap-1 rounded-lg bg-honey/10 border border-honey/20 px-2 py-0.5 text-[11px] font-medium text-honey"
               >
-                #{t.tag}
+                #{t.tag}{t.source === "manual" ? " · manual" : ""}
+                <button type="button" aria-label={`Remove ${t.tag} tag`} onClick={() => void deleteTag(t.tag)}><X size={11} /></button>
               </span>
             ))}
           </div>
+          <form onSubmit={(event) => { event.preventDefault(); void addTag(); }} className="flex gap-2">
+            <input value={newTag} onChange={(event) => setNewTag(event.target.value)} maxLength={64} placeholder="Add a tag" aria-label="New tag" className="min-w-0 flex-1 rounded-lg border border-ink/[.3] bg-shell px-2 py-1 text-xs" />
+            <button type="submit" className="rounded-lg bg-honey/15 px-2 text-xs font-semibold text-honey">Add</button>
+          </form>
+          {tagError && <p role="alert" className="text-xs text-red-500">{tagError}</p>}
         </div>
-      ) : null}
 
       <div className="flex flex-col gap-3">
         <h4 className="eyebrow">Dates & History</h4>
