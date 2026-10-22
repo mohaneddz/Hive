@@ -164,10 +164,13 @@ export function GalleryPage() {
       kind: "warning",
     });
     if (!confirmed) return;
-    await Promise.all([...selected].map((mediaId) => setTrashed(mediaId, true)));
-    setItems((prev) => prev.filter((item) => !selected.has(item.id)));
-    setSelected(new Set());
-    setSelecting(false);
+    const ids = [...selected];
+    const outcomes = await Promise.allSettled(ids.map((mediaId) => setTrashed(mediaId, true)));
+    const succeeded = new Set(ids.filter((_, index) => outcomes[index].status === "fulfilled"));
+    setItems((prev) => prev.filter((item) => !succeeded.has(item.id)));
+    setSelected(new Set(ids.filter((id) => !succeeded.has(id))));
+    if (succeeded.size === ids.length) setSelecting(false);
+    else await confirm(`${succeeded.size} of ${ids.length} items moved. The remaining items are still selected.`, { title: "Some items could not be moved", kind: "error" });
   };
 
   const exitSelection = () => {

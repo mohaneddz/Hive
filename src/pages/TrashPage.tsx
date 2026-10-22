@@ -73,10 +73,14 @@ export function TrashPage() {
     if (selected.size === 0) return;
     setBusy(true);
     try {
-      await Promise.all([...selected].map((mediaId) => setTrashed(mediaId, false)));
-      setItems((prev) => prev.filter((item) => !selected.has(item.id)));
-      setTotal((prev) => Math.max(0, prev - selected.size));
-      finishSelecting();
+      const ids = [...selected];
+      const outcomes = await Promise.allSettled(ids.map((mediaId) => setTrashed(mediaId, false)));
+      const succeeded = new Set(ids.filter((_, index) => outcomes[index].status === "fulfilled"));
+      setItems((prev) => prev.filter((item) => !succeeded.has(item.id)));
+      setTotal((prev) => Math.max(0, prev - succeeded.size));
+      setSelected(new Set(ids.filter((id) => !succeeded.has(id))));
+      if (succeeded.size === ids.length) finishSelecting();
+      else await confirm(`${succeeded.size} of ${ids.length} items restored. The remaining items are still selected.`, { title: "Some items could not be restored", kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -91,10 +95,14 @@ export function TrashPage() {
     if (!confirmed) return;
     setBusy(true);
     try {
-      await Promise.all([...selected].map(deleteMediaPermanently));
-      setItems((prev) => prev.filter((item) => !selected.has(item.id)));
-      setTotal((prev) => Math.max(0, prev - selected.size));
-      finishSelecting();
+      const ids = [...selected];
+      const outcomes = await Promise.allSettled(ids.map(deleteMediaPermanently));
+      const succeeded = new Set(ids.filter((_, index) => outcomes[index].status === "fulfilled"));
+      setItems((prev) => prev.filter((item) => !succeeded.has(item.id)));
+      setTotal((prev) => Math.max(0, prev - succeeded.size));
+      setSelected(new Set(ids.filter((id) => !succeeded.has(id))));
+      if (succeeded.size === ids.length) finishSelecting();
+      else await confirm(`${succeeded.size} of ${ids.length} items deleted. The remaining items are still selected.`, { title: "Some items could not be deleted", kind: "error" });
     } finally {
       setBusy(false);
     }
