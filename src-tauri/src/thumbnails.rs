@@ -9,6 +9,51 @@ pub fn thumbnail_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("thumbnails")
 }
 
+/// A browser-readable preview for image formats WebView2 cannot reliably decode.
+/// The hash in the name makes an edited original invalidate its old preview.
+pub fn viewer_preview(app_data_dir: &Path, media_id: &str, hash: &str, source: &Path) -> anyhow::Result<PathBuf> {
+    let dir = thumbnail_dir(app_data_dir);
+    std::fs::create_dir_all(&dir)?;
+    let safe_hash: String = hash.chars().filter(|c| c.is_ascii_hexdigit()).take(16).collect();
+    let target = dir.join(format!("{media_id}_{safe_hash}_preview.jpg"));
+    if target.is_file() {
+        return Ok(target);
+    }
+
+    let temporary = dir.join(format!("{media_id}_{}_preview.jpg", uuid::Uuid::new_v4()));
+    let generated = if ffmpeg_available() {
+        std::process::Command::new("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"])
+            .arg(source)
+            .args(["-frames:v", "1", "-vf", "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease", "-q:v", "2"])
+            .arg(&temporary)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    if !generated {
+        // TIFF and AVIF can be handled by the Rust decoder even without ffmpeg.
+        let fallback = (|| -> anyhow::Result<()> {
+            let image = image::open(source)?;
+            image.thumbnail(4096, 4096).save_with_format(&temporary, image::ImageFormat::Jpeg)?;
+            Ok(())
+        })();
+        if let Err(error) = fallback {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(error);
+        }
+    }
+    if let Err(error) = std::fs::rename(&temporary, &target) {
+        let _ = std::fs::remove_file(&temporary);
+        if !target.is_file() {
+            return Err(error.into());
+        }
+    }
+    Ok(target)
+}
+
 fn save_thumbnails(
     conn: &Connection,
     app_data_dir: &Path,
@@ -18,20 +63,49 @@ fn save_thumbnails(
     let out_dir = thumbnail_dir(app_data_dir);
     std::fs::create_dir_all(&out_dir)?;
 
-    for (label, max_dim) in [SIZE_SM, SIZE_MD] {
-        let thumb = img.thumbnail(max_dim, max_dim);
-        let file_name = format!("{media_id}_{label}.jpg");
+    let hash: String = conn.query_row(
+        "SELECT hash FROM media_items WHERE id = ?1",
+        params![media_id],
+        |row| row.get(0),
+    )?;
+    let short_hash: String = hash.chars().filter(|ch| ch.is_ascii_hexdigit()).take(16).collect();
+
+    let medium = img.thumbnail(SIZE_MD.1, SIZE_MD.1);
+    let small = medium.thumbnail(SIZE_SM.1, SIZE_SM.1);
+    for (label, thumb) in [(SIZE_SM.0, &small), (SIZE_MD.0, &medium)] {
+        let file_name = format!("{media_id}_{short_hash}_{label}.jpg");
         let out_path = out_dir.join(&file_name);
         thumb.to_rgb8().save_with_format(&out_path, image::ImageFormat::Jpeg)?;
+
+        let previous: Option<String> = conn.query_row(
+            "SELECT path FROM thumbnails WHERE media_id = ?1 AND size = ?2",
+            params![media_id, label],
+            |row| row.get(0),
+        ).ok();
 
         conn.execute(
             "INSERT INTO thumbnails (media_id, size, path) VALUES (?1, ?2, ?3)
              ON CONFLICT(media_id, size) DO UPDATE SET path = excluded.path",
             params![media_id, label, out_path.to_string_lossy()],
         )?;
+        if let Some(old) = previous {
+            let old = PathBuf::from(old);
+            if old != out_path && old.parent() == Some(out_dir.as_path()) {
+                let _ = std::fs::remove_file(old);
+            }
+        }
     }
 
     Ok(())
+}
+
+pub fn generate_from_decoded_image(
+    conn: &Connection,
+    app_data_dir: &Path,
+    media_id: &str,
+    image: &image::DynamicImage,
+) -> anyhow::Result<()> {
+    save_thumbnails(conn, app_data_dir, media_id, image)
 }
 
 /// Generate sm/md thumbnails for an image media item and record them in the DB.
@@ -51,11 +125,11 @@ pub fn generate_for_image(
                 eprintln!("[thumbnails] failed to decode image {source_path:?}: {native_error}");
                 return Ok(false);
             }
-            let frame_path = std::env::temp_dir().join(format!("hive_image_{media_id}.png"));
+            let frame_path = std::env::temp_dir().join(format!("hive_image_{}.jpg", uuid::Uuid::new_v4()));
             let output = std::process::Command::new("ffmpeg")
-                .args(["-y", "-i"])
+                .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"])
                 .arg(source_path)
-                .args(["-frames:v", "1"])
+                .args(["-frames:v", "1", "-vf", "scale='min(800,iw)':'min(800,ih)':force_original_aspect_ratio=decrease", "-q:v", "3"])
                 .arg(&frame_path)
                 .output();
             let decoded = match output {
@@ -102,13 +176,13 @@ pub fn generate_for_video(
         return Ok(false);
     }
 
-    let frame_path = std::env::temp_dir().join(format!("hive_frame_{media_id}.jpg"));
+    let frame_path = std::env::temp_dir().join(format!("hive_frame_{}.jpg", uuid::Uuid::new_v4()));
 
     // Grab a frame 1s in (skips solid-color opening frames some videos have) with a fallback to
     // the very first frame for clips shorter than that.
     let attempts: [&[&str]; 2] = [
-        &["-y", "-ss", "00:00:01", "-i", "IN", "-frames:v", "1", "-q:v", "3", "OUT"],
-        &["-y", "-i", "IN", "-frames:v", "1", "-q:v", "3", "OUT"],
+        &["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-ss", "00:00:01", "-i", "IN", "-frames:v", "1", "-vf", "scale='min(800,iw)':'min(800,ih)':force_original_aspect_ratio=decrease", "-q:v", "3", "OUT"],
+        &["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", "IN", "-frames:v", "1", "-vf", "scale='min(800,iw)':'min(800,ih)':force_original_aspect_ratio=decrease", "-q:v", "3", "OUT"],
     ];
 
     let mut extracted = false;
@@ -158,6 +232,20 @@ pub fn generate_for_video(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::GenericImageView;
+
+    #[test]
+    fn preview_converts_tiff_once_and_bounds_dimensions() {
+        let dir = std::env::temp_dir().join(format!("hive_preview_fixture_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("image.tiff");
+        let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(320, 240, image::Rgb([80, 120, 160])));
+        image.save_with_format(&source, image::ImageFormat::Tiff).unwrap();
+        let preview = viewer_preview(&dir, "fixture", "0123456789abcdef", &source).unwrap();
+        assert_eq!(image::open(&preview).unwrap().dimensions(), (320, 240));
+        assert_eq!(viewer_preview(&dir, "fixture", "0123456789abcdef", &source).unwrap(), preview);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// Ignored by default since it shells out to ffmpeg and needs a writable rusqlite DB —
     /// run explicitly with `cargo test -- --ignored thumbnails::tests`.

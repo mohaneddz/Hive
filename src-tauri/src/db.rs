@@ -193,6 +193,7 @@ pub fn open(db_path: &Path) -> rusqlite::Result<Connection> {
     conn.pragma_update(None, "foreign_keys", true)?;
     conn.execute_batch(MIGRATIONS)?;
     ensure_column(&conn, "media_items", "phash", "TEXT")?;
+    ensure_column(&conn, "media_items", "mtime_ns", "INTEGER")?;
     ensure_column(&conn, "media_items", "face_scanned", "INTEGER NOT NULL DEFAULT 0")?;
     // Trash, filing and editor fields. `taken_at_override` is deliberately separate
     // from `taken_at`: a rescan rewrites the latter from EXIF, which would silently

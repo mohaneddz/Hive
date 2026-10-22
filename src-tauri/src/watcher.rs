@@ -45,14 +45,12 @@ impl WatcherRegistry {
                 if !path.is_file() || indexing::is_supported_media(path).is_none() {
                     continue;
                 }
-                if let Ok(Some(indexed)) = indexing::index_file(&conn, &fid, path) {
-                    let _ = thumbnails::generate(
-                        &conn,
-                        &app_data_dir,
-                        &indexed.item.id,
-                        path,
-                        &indexed.item.media_type,
-                    );
+                if let Ok(Some(indexed)) = indexing::index_file_force(&conn, &fid, path) {
+                    let _ = if let Some(ref image) = indexed.decoded_image {
+                        thumbnails::generate_from_decoded_image(&conn, &app_data_dir, &indexed.item.id, image).map(|_| true)
+                    } else {
+                        thumbnails::generate(&conn, &app_data_dir, &indexed.item.id, path, &indexed.item.media_type)
+                    };
                     newly_indexed.push((indexed.item.id, path.clone()));
                 }
             }

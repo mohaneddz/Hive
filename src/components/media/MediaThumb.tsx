@@ -1,10 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ImageOff } from "lucide-react";
 
-import { readMediaUrl } from "@/lib/tauri";
+import { getThumbnailUrl, getViewableMediaUrl } from "@/lib/tauri";
 import { cn } from "@/utils/cn";
-
-type Stage = "loading" | "ready" | "fallback" | "failed";
 
 export function MediaThumb({
   mediaId,
@@ -17,64 +15,53 @@ export function MediaThumb({
   alt: string;
   className?: string;
 }) {
+  const host = useRef<HTMLDivElement>(null);
+  const [nearby, setNearby] = useState(variant === "original");
   const [url, setUrl] = useState<string | null>(null);
-  const [stage, setStage] = useState<Stage>("loading");
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    setUrl(null);
-    setStage("loading");
-
-    readMediaUrl(mediaId, variant)
-      .then((created) => {
-        if (cancelled) {
-          URL.revokeObjectURL(created);
-          return;
-        }
-        objectUrl = created;
-        setUrl(created);
-        setStage("ready");
-      })
-      .catch(() => {
-        // No thumbnail row for this variant (e.g. generation failed or hasn't run yet) — fall
-        // back to the full-resolution original rather than showing a permanently broken tile.
-        if (cancelled || variant === "original") {
-          if (!cancelled) setStage("failed");
-          return;
-        }
-        readMediaUrl(mediaId, "original")
-          .then((created) => {
-            if (cancelled) {
-              URL.revokeObjectURL(created);
-              return;
-            }
-            objectUrl = created;
-            setUrl(created);
-            setStage("fallback");
-          })
-          .catch(() => {
-            if (!cancelled) setStage("failed");
-          });
-      });
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
+    if (variant === "original") return;
+    const element = host.current;
+    if (!element || typeof IntersectionObserver === "undefined") {
+      setNearby(true);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setNearby(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "400px" });
+    observer.observe(element);
+    return () => observer.disconnect();
   }, [mediaId, variant]);
 
-  if (stage === "failed") {
-    return (
-      <div className={cn("grid place-items-center bg-shell text-ink-muted", className)}>
-        <ImageOff size={20} />
-      </div>
-    );
-  }
+  useEffect(() => {
+    setUrl(null);
+    setFailed(false);
+    if (!nearby) return;
+    let cancelled = false;
+    const request = variant === "original"
+      ? getViewableMediaUrl(mediaId)
+      : getThumbnailUrl(mediaId, variant);
+    request.then((result) => {
+      if (!cancelled) setUrl(result);
+    }).catch(() => {
+      if (!cancelled) setFailed(true);
+    });
+    return () => { cancelled = true; };
+  }, [mediaId, variant, nearby]);
 
-  if (!url) {
-    return <div className={cn("animate-pulse bg-shell", className)} />;
-  }
-
-  return <img src={url} alt={alt} className={className} onError={() => setStage("failed")} />;
+  return (
+    <div ref={host} className={cn("overflow-hidden", className)}>
+      {failed ? (
+        <div className="grid size-full place-items-center bg-shell text-ink-muted"><ImageOff size={20} /></div>
+      ) : url ? (
+        <img src={url} alt={alt} loading="lazy" decoding="async" className="size-full object-cover" onError={() => setFailed(true)} />
+      ) : (
+        <div className="size-full animate-pulse bg-shell" />
+      )}
+    </div>
+  );
 }

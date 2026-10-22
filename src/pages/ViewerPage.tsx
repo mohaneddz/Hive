@@ -28,11 +28,10 @@ import {
 import { AddToAlbumDialog } from "@/components/media/AddToAlbumDialog";
 import { useShortcuts } from "@/hooks/useShortcuts";
 
-import { MediaThumb } from "@/components/media/MediaThumb";
 import { MediaViewerContextMenu } from "@/components/media/MediaViewerContextMenu";
 import { MediaViewerFilmstrip } from "@/components/media/MediaViewerFilmstrip";
 import { MediaViewerInfoDrawer } from "@/components/media/MediaViewerInfoDrawer";
-import { getMediaDetail, getMediaPage, readMediaUrl, setFavorite, setTrashed } from "@/lib/tauri";
+import { getMediaDetail, getMediaPage, getViewableMediaUrl, readMediaUrl, setFavorite, setTrashed } from "@/lib/tauri";
 import type { MediaItem } from "@/types/media";
 import { cn } from "@/utils/cn";
 import { formatDateTime } from "@/utils/format";
@@ -48,6 +47,7 @@ export function ViewerPage() {
 
   const [neighbors, setNeighbors] = useState<MediaItem[]>([]);
   const [item, setItem] = useState<MediaItem | null>(null);
+  const [viewableUrl, setViewableUrl] = useState<string | null>(null);
 
   const [stageBg, setStageBg] = useState<StageBgMode>("adaptive");
   const [zoom, setZoom] = useState(1);
@@ -68,6 +68,16 @@ export function ViewerPage() {
   const { matches } = useShortcuts();
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!item || item.id !== id) return;
+    let cancelled = false;
+    setViewableUrl(null);
+    getViewableMediaUrl(item.id)
+      .then((url) => { if (!cancelled) setViewableUrl(url); })
+      .catch((cause) => { if (!cancelled) setFailure(String(cause)); });
+    return () => { cancelled = true; };
+  }, [id, item?.id, item?.hash]);
 
   const closeViewer = useCallback(() => {
     if (window.history.length > 1) navigate(-1);
@@ -280,6 +290,10 @@ export function ViewerPage() {
 
   const handleCopyImage = async () => {
     if (!item) return;
+    if (item.mediaType === "video") {
+      await handleCopyPath();
+      return;
+    }
     try {
       const url = await readMediaUrl(item.id, "original");
       const resp = await fetch(url);
@@ -496,12 +510,13 @@ export function ViewerPage() {
             transformOrigin: "center center",
           }}
         >
-          <MediaThumb
-            mediaId={item.id}
-            variant="original"
-            alt={item.filename}
-            className="max-h-full max-w-full rounded-2xl object-contain shadow-2xl transition-all duration-150 pointer-events-none"
-          />
+          {viewableUrl && item.mediaType === "video" ? (
+            <video key={item.id} src={viewableUrl} controls preload="metadata" className="max-h-full max-w-full rounded-2xl object-contain shadow-2xl" onClick={(event) => event.stopPropagation()} />
+          ) : viewableUrl ? (
+            <img src={viewableUrl} alt={item.filename} className="max-h-full max-w-full rounded-2xl object-contain shadow-2xl transition-all duration-150 pointer-events-none" />
+          ) : (
+            <div className="size-20 animate-pulse rounded-2xl bg-shell" />
+          )}
         </div>
 
         {nextItem && (

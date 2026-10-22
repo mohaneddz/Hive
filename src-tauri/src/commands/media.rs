@@ -2,7 +2,7 @@ use crate::models::{ExifData, LibraryStats, MediaItem, MediaPage, PlaceCluster};
 use crate::state::AppState;
 use crate::{db, indexing, jobs, thumbnails};
 use rusqlite::{params, Connection, OptionalExtension};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 pub(crate) fn row_to_media_item(conn: &Connection, id: &str) -> rusqlite::Result<MediaItem> {
     let mut item = conn.query_row(
@@ -134,13 +134,11 @@ pub fn scan_folder(
 
             match indexing::index_file(&conn, &folder_id, path) {
                 Ok(Some(indexed)) => {
-                    let _ = thumbnails::generate(
-                        &conn,
-                        &app_data_dir,
-                        &indexed.item.id,
-                        path,
-                        &indexed.item.media_type,
-                    );
+                    let _ = if let Some(ref image) = indexed.decoded_image {
+                        thumbnails::generate_from_decoded_image(&conn, &app_data_dir, &indexed.item.id, image).map(|_| true)
+                    } else {
+                        thumbnails::generate(&conn, &app_data_dir, &indexed.item.id, path, &indexed.item.media_type)
+                    };
                     newly_indexed.push((indexed.item.id, path.clone()));
                     let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
                 }
@@ -324,6 +322,7 @@ pub fn search_media(
             "SELECT m.id FROM media_fts f
              JOIN media_items m ON m.id = f.media_id
              WHERE media_fts MATCH ?1 AND m.is_trashed = 0
+               AND m.is_hidden = 0 AND m.is_archived = 0
              ORDER BY rank LIMIT ?2",
         )
         .map_err(|e| e.to_string())?;
@@ -390,6 +389,94 @@ pub fn read_media_bytes(
     };
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Expose only this indexed item to Tauri's asset protocol. Unlike IPC byte reads,
+/// the protocol supports range requests for video and leaves image decoding to the WebView.
+#[tauri::command]
+pub fn get_viewable_media_path(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    media_id: String,
+) -> Result<String, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let (raw_path, media_type, hash): (String, String, String) = conn.query_row(
+        "SELECT path, media_type, hash FROM media_items WHERE id = ?1 AND is_trashed = 0",
+        params![media_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).map_err(|e| e.to_string())?;
+    drop(conn);
+    let source = std::path::PathBuf::from(raw_path);
+    if !source.is_file() {
+        return Err("The media file is missing from disk".into());
+    }
+    let browser_image = matches!(
+        source.extension().and_then(|ext| ext.to_str()).unwrap_or("").to_ascii_lowercase().as_str(),
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp"
+    );
+    let viewable = if media_type == "image" && !browser_image {
+        thumbnails::viewer_preview(&state.app_data_dir, &media_id, &hash, &source)
+            .map_err(|error| format!("Could not create a preview: {error}"))?
+    } else {
+        source
+    };
+    app.asset_protocol_scope().allow_file(&viewable).map_err(|e| e.to_string())?;
+    Ok(viewable.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn get_thumbnail_path(
+    state: State<'_, AppState>,
+    media_id: String,
+    variant: String,
+) -> Result<String, String> {
+    if variant != "sm" && variant != "md" {
+        return Err("Invalid thumbnail size".into());
+    }
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let raw_path: Option<String> = conn.query_row(
+        "SELECT t.path FROM thumbnails t JOIN media_items m ON m.id = t.media_id
+         WHERE t.media_id = ?1 AND t.size = ?2",
+        params![media_id, variant],
+        |row| row.get(0),
+    ).optional().map_err(|e| e.to_string())?;
+    if let Some(path) = raw_path.as_ref().map(std::path::PathBuf::from) {
+        if path.is_file() {
+            return Ok(path.to_string_lossy().into_owned());
+        }
+    }
+    // Cache eviction can remove files while preserving their DB rows. Rebuild a
+    // thumbnail only when a visible card asks for it.
+    let (source_path, media_type): (String, String) = conn.query_row(
+        "SELECT path, media_type FROM media_items WHERE id = ?1",
+        params![media_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|e| e.to_string())?;
+    drop(conn);
+    static REGENERATION_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _regeneration = REGENERATION_LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        .lock().map_err(|e| e.to_string())?;
+    let conn = db::open(&state.db_path).map_err(|e| e.to_string())?;
+    let latest: Option<String> = conn.query_row(
+        "SELECT path FROM thumbnails WHERE media_id = ?1 AND size = ?2",
+        params![media_id, variant],
+        |row| row.get(0),
+    ).optional().map_err(|e| e.to_string())?;
+    if let Some(path) = latest.as_ref().map(std::path::PathBuf::from) {
+        if path.is_file() { return Ok(path.to_string_lossy().into_owned()); }
+    }
+    let generated = thumbnails::generate(
+        &conn, &state.app_data_dir, &media_id,
+        std::path::Path::new(&source_path), &media_type,
+    ).map_err(|e| e.to_string())?;
+    if !generated { return Err("Could not generate a thumbnail for this format".into()); }
+    let raw_path: String = conn.query_row(
+        "SELECT path FROM thumbnails WHERE media_id = ?1 AND size = ?2",
+        params![media_id, variant],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+    let path = std::path::PathBuf::from(raw_path);
+    Ok(path.to_string_lossy().into_owned())
 }
 
 /// Emitted when a flag changes but the set of files did not.

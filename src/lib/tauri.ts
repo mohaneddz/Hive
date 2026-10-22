@@ -1,4 +1,4 @@
-﻿import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 import type {
   AiStatus,
@@ -438,6 +438,16 @@ export async function readMediaUrl(
   const buffer = await invoke<ArrayBuffer>("read_media_bytes", { mediaId, variant });
   const blob = new Blob([buffer]);
   return URL.createObjectURL(blob);
+}
+
+export async function getViewableMediaUrl(mediaId: string): Promise<string> {
+  const path = await invoke<string>("get_viewable_media_path", { mediaId });
+  return convertFileSrc(path);
+}
+
+export async function getThumbnailUrl(mediaId: string, variant: "sm" | "md"): Promise<string> {
+  const path = await invoke<string>("get_thumbnail_path", { mediaId, variant });
+  return convertFileSrc(path);
 }
 
 export function setFavorite(mediaId: string, favorite: boolean): Promise<void> {

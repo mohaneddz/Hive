@@ -41,6 +41,9 @@ pub fn run() {
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
+            let thumbnails_dir = thumbnails::thumbnail_dir(&app_data_dir);
+            std::fs::create_dir_all(&thumbnails_dir)?;
+            app.asset_protocol_scope().allow_directory(&thumbnails_dir, false)?;
             let db_path = app_data_dir.join("hive.db");
 
             // A restore staged during the previous session can only be applied
@@ -111,6 +114,8 @@ pub fn run() {
             commands::media::get_media_page,
             commands::media::get_media_detail,
             commands::media::read_media_bytes,
+            commands::media::get_viewable_media_path,
+            commands::media::get_thumbnail_path,
             commands::media::set_favorite,
             commands::media::set_trashed,
             commands::media::delete_media_permanently,

@@ -109,6 +109,7 @@ fn exif_taken_at(path: &Path) -> Option<String> {
 
 pub struct IndexedFile {
     pub item: MediaItem,
+    pub decoded_image: Option<image::DynamicImage>,
 }
 
 /// Index a single file: hash, extract metadata, insert/update the DB row.
@@ -118,22 +119,48 @@ pub fn index_file(
     folder_id: &str,
     path: &Path,
 ) -> anyhow::Result<Option<IndexedFile>> {
+    index_file_inner(conn, folder_id, path, false)
+}
+
+/// Watcher events are forced through hashing even if a tool preserved size and mtime.
+pub fn index_file_force(
+    conn: &Connection,
+    folder_id: &str,
+    path: &Path,
+) -> anyhow::Result<Option<IndexedFile>> {
+    index_file_inner(conn, folder_id, path, true)
+}
+
+fn index_file_inner(
+    conn: &Connection,
+    folder_id: &str,
+    path: &Path,
+    force_hash: bool,
+) -> anyhow::Result<Option<IndexedFile>> {
     let media_type = match is_supported_media(path) {
         Some(t) => t,
         None => return Ok(None),
     };
 
     let metadata = std::fs::metadata(path)?;
-    let hash = hash_file(path)?;
-
-    let existing: Option<String> = conn
+    let mtime_ns = metadata.modified().ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .and_then(|duration| i64::try_from(duration.as_nanos()).ok());
+    let existing: Option<(String, i64, Option<i64>)> = conn
         .query_row(
-            "SELECT hash FROM media_items WHERE path = ?1",
+            "SELECT hash, size, mtime_ns FROM media_items WHERE path = ?1",
             params![path.to_string_lossy()],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()?;
-    if existing.as_deref() == Some(hash.as_str()) {
+    if !force_hash && mtime_ns.is_some() && existing.as_ref().is_some_and(|(_, size, previous_mtime)| *size == metadata.len() as i64 && *previous_mtime == mtime_ns) {
+        return Ok(None);
+    }
+    let hash = hash_file(path)?;
+    if existing.as_ref().is_some_and(|(previous_hash, _, _)| previous_hash == &hash) {
+        conn.execute(
+            "UPDATE media_items SET size = ?1, mtime_ns = ?2 WHERE path = ?3",
+            params![metadata.len() as i64, mtime_ns, path.to_string_lossy()],
+        )?;
         return Ok(None);
     }
 
@@ -165,13 +192,13 @@ pub fn index_file(
         .modified()
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .and_then(|d| DateTime::from_timestamp(d.as_secs() as i64, 0))
+        .and_then(|d| DateTime::from_timestamp(d.as_secs() as i64, d.subsec_nanos()))
         .unwrap_or(now);
     let created_at: DateTime<Utc> = metadata
         .created()
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .and_then(|d| DateTime::from_timestamp(d.as_secs() as i64, 0))
+        .and_then(|d| DateTime::from_timestamp(d.as_secs() as i64, d.subsec_nanos()))
         .unwrap_or(now);
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -184,14 +211,14 @@ pub fn index_file(
         "INSERT INTO media_items
             (id, folder_id, path, filename, hash, size, width, height, duration_ms,
              mime_type, media_type, taken_at, created_at, modified_at, indexed_at,
-             is_favorite, is_trashed, phash)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,NULL,?9,?10,?11,?12,?13,?14,0,0,?15)
+             is_favorite, is_trashed, phash, mtime_ns)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,NULL,?9,?10,?11,?12,?13,?14,0,0,?15,?16)
          ON CONFLICT(path) DO UPDATE SET
             hash=excluded.hash, size=excluded.size, width=excluded.width,
             height=excluded.height, mime_type=excluded.mime_type,
             media_type=excluded.media_type, taken_at=excluded.taken_at,
             modified_at=excluded.modified_at, indexed_at=excluded.indexed_at,
-            phash=excluded.phash",
+            phash=excluded.phash, mtime_ns=excluded.mtime_ns",
         params![
             id,
             folder_id,
@@ -208,6 +235,7 @@ pub fn index_file(
             modified_at.to_rfc3339(),
             now.to_rfc3339(),
             phash,
+            mtime_ns,
         ],
     )?;
 
@@ -276,6 +304,7 @@ pub fn index_file(
             exif,
             thumbnail_path: None,
         },
+        decoded_image: loaded_image,
     }))
 }
 
@@ -327,4 +356,30 @@ pub fn walk_folder(root: &Path) -> Vec<std::path::PathBuf> {
         .map(|e| e.path().to_path_buf())
         .filter(|p| is_supported_media(p).is_some())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeat_scan_skips_unchanged_metadata_but_watcher_checks_content() {
+        let dir = std::env::temp_dir().join(format!("hive_index_fixture_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("fixture.db");
+        let image_path = dir.join("fixture.bmp");
+        let conn = crate::db::open(&db_path).unwrap();
+        conn.execute("INSERT INTO folders (id, path, name, added_at) VALUES ('folder', ?1, 'Fixture', '2026-01-01')", params![dir.to_string_lossy()]).unwrap();
+        image::RgbImage::from_pixel(16, 16, image::Rgb([12, 34, 56])).save(&image_path).unwrap();
+        let first = index_file(&conn, "folder", &image_path).unwrap().unwrap();
+        let modified = std::fs::metadata(&image_path).unwrap().modified().unwrap();
+        assert!(index_file(&conn, "folder", &image_path).unwrap().is_none());
+        image::RgbImage::from_pixel(16, 16, image::Rgb([56, 34, 12])).save(&image_path).unwrap();
+        std::fs::File::options().write(true).open(&image_path).unwrap().set_modified(modified).unwrap();
+        assert!(index_file(&conn, "folder", &image_path).unwrap().is_none());
+        let changed = index_file_force(&conn, "folder", &image_path).unwrap().unwrap();
+        assert_ne!(first.item.hash, changed.item.hash);
+        drop(conn);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
