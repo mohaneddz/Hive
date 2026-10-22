@@ -592,7 +592,7 @@ export function ViewerPage() {
             className={cn(
               "rounded-xl p-2 transition",
               isPlayingSlideshow
-                ? "bg-honey text-white"
+                ? "bg-honey text-[#3b2900]"
                 : "hover:bg-honey/15 hover:text-honey"
             )}
             title="Slideshow (Space)"
