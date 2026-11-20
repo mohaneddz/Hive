@@ -107,14 +107,14 @@ export function AddToAlbumDialog({
                 className={cn(
                   "flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition disabled:opacity-50",
                   isIn
-                    ? "border-honey/50 bg-cream/55"
+                    ? "border-honey/50 bg-honey/15 dark:bg-honey/10"
                     : "border-ink/[.08] bg-canvas hover:border-honey/40",
                 )}
               >
                 <span
                   className={cn(
                     "grid size-8 shrink-0 place-items-center rounded-xl",
-                    isIn ? "bg-honey text-[#3b2900]" : "bg-cream text-honey-deep",
+                    isIn ? "bg-honey text-[#3b2900]" : "bg-cream dark:bg-honey/15 text-honey-deep",
                   )}
                 >
                   {isIn ? <Check size={15} strokeWidth={3} /> : <FolderPlus size={15} />}

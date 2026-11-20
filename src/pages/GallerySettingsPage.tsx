@@ -1,4 +1,4 @@
-﻿import { AlertTriangle, Database, Download, Eye, FileText, FolderOpen, HardDrive, Image, ImageOff, Keyboard, Monitor, Moon, Palette, Pause, Play, Plus, RefreshCw, ScanText, Shield, Sparkles, Star, Sun, Tag, Trash2, Users } from "lucide-react";
+import { AlertTriangle, Database, Download, Eye, FileText, FolderOpen, HardDrive, Image, ImageOff, Keyboard, Monitor, Moon, Palette, Pause, Play, Plus, RefreshCw, ScanText, Shield, Sparkles, Star, Sun, Tag, Trash2, Users } from "lucide-react";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useState } from "react";
 
@@ -372,7 +372,7 @@ export function GallerySettingsPage() {
       <div className="mt-7 grid max-w-4xl gap-5">
         <Card className="p-6">
           <div className="flex items-center gap-3">
-            <div className="grid size-10 place-items-center rounded-xl bg-cream text-honey-deep">
+            <div className="grid size-10 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
               <FolderOpen size={19} />
             </div>
             <div>
@@ -461,7 +461,7 @@ export function GallerySettingsPage() {
 
         <Card className="p-6">
           <div className="flex items-center gap-3">
-            <div className="grid size-10 place-items-center rounded-xl bg-cream text-honey-deep">
+            <div className="grid size-10 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
               <Sparkles size={19} />
             </div>
             <div>
@@ -772,7 +772,7 @@ export function GallerySettingsPage() {
 
         <Card className="p-6">
           <div className="flex items-center gap-3">
-            <div className="grid size-10 place-items-center rounded-xl bg-cream text-honey-deep">
+            <div className="grid size-10 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
               <Palette size={19} />
             </div>
             <div>
@@ -808,7 +808,7 @@ export function GallerySettingsPage() {
 
         <Card className="p-6">
           <div className="flex items-center gap-3">
-            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream text-honey-deep">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
               <HardDrive size={19} />
             </div>
             <div>
@@ -876,7 +876,7 @@ export function GallerySettingsPage() {
                   className={cn(
                     "rounded-xl border px-3.5 py-2 text-[11px] font-bold transition",
                     cacheLimit === entry.megabytes
-                      ? "border-honey bg-cream/55 text-honey-deep"
+                      ? "border-honey bg-honey/15 dark:bg-honey/10 text-honey-deep"
                       : "border-ink/[.1] bg-canvas text-ink hover:border-honey/40",
                   )}
                 >
@@ -892,7 +892,7 @@ export function GallerySettingsPage() {
 
         <Card className="p-6">
           <div className="flex items-center gap-3">
-            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream text-honey-deep">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
               <Database size={19} />
             </div>
             <div>
@@ -919,7 +919,7 @@ export function GallerySettingsPage() {
 
         <Card className="p-6">
           <div className="flex items-center gap-3">
-            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream text-honey-deep">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
               <Keyboard size={19} />
             </div>
             <div>
@@ -934,7 +934,7 @@ export function GallerySettingsPage() {
 
         <Card className="p-6">
           <div className="flex items-center gap-3">
-            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream text-honey-deep">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
               <Shield size={19} />
             </div>
             <div>

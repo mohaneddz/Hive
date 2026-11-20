@@ -83,14 +83,14 @@ export function SaveEditDialog({
               className={cn(
                 "flex w-full gap-3.5 rounded-2xl border p-4 text-left transition",
                 mode === choice.mode
-                  ? "border-honey bg-cream/55"
+                  ? "border-honey bg-honey/15 dark:bg-honey/10"
                   : "border-ink/[.08] bg-canvas hover:border-honey/40",
               )}
             >
               <span
                 className={cn(
                   "mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl",
-                  mode === choice.mode ? "bg-honey text-[#3b2900]" : "bg-cream text-honey-deep",
+                  mode === choice.mode ? "bg-honey text-[#3b2900]" : "bg-cream dark:bg-honey/15 text-honey-deep",
                 )}
               >
                 <choice.icon size={17} />

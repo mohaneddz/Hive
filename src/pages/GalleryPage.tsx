@@ -235,7 +235,7 @@ export function GalleryPage() {
       />
 
       {selecting && (
-        <p className="mt-5 rounded-2xl border border-honey/30 bg-cream/45 px-4 py-3 text-xs font-semibold text-honey-deep">
+        <p className="mt-5 rounded-2xl border border-honey/30 bg-honey/10 dark:bg-honey/10 px-4 py-3 text-xs font-semibold text-honey-deep">
           {selected.size === 0 ? "Tap items to select them." : `${formatCount(selected.size, "item")} selected.`}
         </p>
       )}

@@ -58,7 +58,7 @@ const FORMATS: { value: ConvertFormat; label: string; hint: string }[] = [
 function ReportBanner({ report }: { report: BatchReport }) {
   const saved = report.bytesBefore - report.bytesAfter;
   return (
-    <div className="mt-5 rounded-2xl border border-honey/30 bg-cream/45 px-4 py-3 text-xs font-semibold text-honey-deep">
+    <div className="mt-5 rounded-2xl border border-honey/30 bg-honey/10 dark:bg-honey/10 px-4 py-3 text-xs font-semibold text-honey-deep">
       <p>
         {report.processed} done · {report.skipped} skipped · {report.failed} failed
         {report.bytesBefore > 0 &&
@@ -270,7 +270,7 @@ export function BatchPanel() {
               }}
               className={cn(
                 "inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold text-ink-muted transition",
-                operation === entry.key && "bg-cream text-honey-deep",
+                operation === entry.key && "bg-honey/20 text-honey-deep dark:bg-honey/15 dark:text-honey",
               )}
             >
               <entry.icon size={14} />
@@ -373,7 +373,7 @@ export function BatchPanel() {
                   className={cn(
                     "rounded-2xl border p-4 text-left transition",
                     preset === index
-                      ? "border-honey bg-cream/55"
+                      ? "border-honey bg-honey/15 dark:bg-honey/10"
                       : "border-ink/[.08] bg-canvas hover:border-honey/40",
                   )}
                 >
@@ -411,7 +411,7 @@ export function BatchPanel() {
                   className={cn(
                     "rounded-2xl border p-4 text-left transition",
                     format === entry.value
-                      ? "border-honey bg-cream/55"
+                      ? "border-honey bg-honey/15 dark:bg-honey/10"
                       : "border-ink/[.08] bg-canvas hover:border-honey/40",
                   )}
                 >
@@ -456,7 +456,7 @@ export function BatchPanel() {
                       className={cn(
                         "rounded-2xl border p-4 text-left transition",
                         videoPreset === index
-                          ? "border-honey bg-cream/55"
+                          ? "border-honey bg-honey/15 dark:bg-honey/10"
                           : "border-ink/[.08] bg-canvas hover:border-honey/40",
                       )}
                     >

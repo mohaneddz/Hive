@@ -37,7 +37,7 @@ function SectionHeader({ icon, title, subtitle, to }: { icon: React.ReactNode; t
   return (
     <div className="mt-10 flex items-end justify-between gap-4">
       <div className="flex items-center gap-3">
-        <div className="grid size-9 place-items-center rounded-xl bg-cream text-honey-deep">{icon}</div>
+        <div className="grid size-9 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">{icon}</div>
         <div>
           <h2 className="text-base font-extrabold text-ink">{title}</h2>
           <p className="text-xs text-ink-muted">{subtitle}</p>

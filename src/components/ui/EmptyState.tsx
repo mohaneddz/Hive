@@ -22,7 +22,7 @@ export function EmptyState({
         className,
       )}
     >
-      <div className="grid size-14 place-items-center rounded-2xl bg-cream text-honey-deep">
+      <div className="grid size-14 place-items-center rounded-2xl bg-cream dark:bg-honey/15 text-honey-deep">
         {icon}
       </div>
       <div>

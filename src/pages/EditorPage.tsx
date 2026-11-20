@@ -466,7 +466,7 @@ export function EditorPage() {
                 onClick={() => setTab(entry.key)}
                 className={cn(
                   "flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-[10px] font-bold text-ink-muted transition",
-                  tab === entry.key ? "bg-cream text-honey-deep" : "hover:bg-ink/5 hover:text-ink",
+                  tab === entry.key ? "bg-honey/20 text-honey-deep dark:bg-honey/15 dark:text-honey" : "hover:bg-ink/5 hover:text-ink",
                 )}
               >
                 <entry.icon size={15} />
@@ -498,7 +498,7 @@ export function EditorPage() {
                         ...preset.ops,
                       }))
                     }
-                    className="rounded-xl border border-ink/[.1] bg-canvas px-3 py-2.5 text-[11px] font-bold text-ink transition hover:border-honey/50 hover:bg-cream/40"
+                    className="rounded-xl border border-ink/[.1] bg-canvas px-3 py-2.5 text-[11px] font-bold text-ink transition hover:border-honey/50 hover:bg-honey/10"
                   >
                     {preset.name}
                   </button>
@@ -545,7 +545,7 @@ export function EditorPage() {
                       className={cn(
                         "grid h-10 place-items-center rounded-xl border transition",
                         button.active
-                          ? "border-honey bg-cream/55 text-honey-deep"
+                          ? "border-honey bg-honey/15 dark:bg-honey/10 text-honey-deep"
                           : "border-ink/[.1] bg-canvas text-ink hover:border-honey/40",
                       )}
                     >

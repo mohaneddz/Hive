@@ -59,7 +59,7 @@ export function DuplicatesPanel() {
     <Card className="mt-5 p-6">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="grid size-10 place-items-center rounded-xl bg-cream text-honey-deep">
+          <div className="grid size-10 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
             <Copy size={18} />
           </div>
           <div>

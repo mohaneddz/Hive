@@ -201,7 +201,7 @@ export function PeoplePage() {
           description="Hive will group photos by the people in them, entirely on-device."
         />
         <Card className="mt-8 flex flex-col items-center gap-3 p-16 text-center">
-          <div className="grid size-14 place-items-center rounded-2xl bg-cream text-honey-deep">
+          <div className="grid size-14 place-items-center rounded-2xl bg-cream dark:bg-honey/15 text-honey-deep">
             <Users size={22} />
           </div>
           <p className="text-sm font-extrabold text-ink">Face recognition isn't set up yet</p>

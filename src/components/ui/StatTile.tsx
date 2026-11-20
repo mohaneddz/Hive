@@ -16,7 +16,7 @@ interface StatTileProps {
 export function StatTile({ icon, label, value, hint, to, className }: StatTileProps) {
   const body = (
     <>
-      <div className="grid size-9 place-items-center rounded-xl bg-cream text-honey-deep">
+      <div className="grid size-9 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
         {icon}
       </div>
       <div className="min-w-0">

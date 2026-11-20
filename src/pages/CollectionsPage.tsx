@@ -369,7 +369,7 @@ export function CollectionsPage() {
 
   const selectionNote = (explanation: string) =>
     selecting ? (
-      <p className="mt-5 rounded-2xl border border-honey/30 bg-cream/45 px-4 py-3 text-xs font-semibold text-honey-deep">
+      <p className="mt-5 rounded-2xl border border-honey/30 bg-honey/10 dark:bg-honey/10 px-4 py-3 text-xs font-semibold text-honey-deep">
         {selected.size === 0
           ? "Tap items to select them."
           : `${formatCount(selected.size, "item")} selected.`}{" "}
@@ -651,7 +651,7 @@ export function CollectionsPage() {
               onClick={() => setSearchParams({ view: key })}
               className="flex items-center gap-3.5 rounded-[18px] border border-ink/[.07] bg-panel p-4 text-left shadow-[0_12px_40px_rgba(75,52,10,.055)] transition hover:-translate-y-px hover:border-honey/40"
             >
-              <div className="grid size-9 place-items-center rounded-xl bg-cream text-honey-deep">
+              <div className="grid size-9 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
                 <config.icon size={17} />
               </div>
               <div className="min-w-0">
@@ -667,7 +667,7 @@ export function CollectionsPage() {
           to={routes.trash.path}
           className="flex items-center gap-3.5 rounded-[18px] border border-ink/[.07] bg-panel p-4 shadow-[0_12px_40px_rgba(75,52,10,.055)] transition hover:-translate-y-px hover:border-honey/40"
         >
-          <div className="grid size-9 place-items-center rounded-xl bg-cream text-honey-deep">
+          <div className="grid size-9 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
             <Trash2 size={17} />
           </div>
           <div className="min-w-0">
@@ -680,7 +680,7 @@ export function CollectionsPage() {
       </div>
 
       <div className="mt-10 flex items-center gap-3">
-        <div className="grid size-9 place-items-center rounded-xl bg-cream text-honey-deep">
+        <div className="grid size-9 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
           <Sparkle size={17} />
         </div>
         <div>
@@ -700,7 +700,7 @@ export function CollectionsPage() {
               onClick={() => setSearchParams({ view: key })}
               className="flex items-start gap-3.5 rounded-[18px] border border-ink/[.07] bg-panel p-4 text-left shadow-[0_12px_40px_rgba(75,52,10,.055)] transition hover:-translate-y-px hover:border-honey/40"
             >
-              <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-cream text-honey-deep">
+              <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
                 <config.icon size={17} />
               </div>
               <div className="min-w-0">
@@ -715,7 +715,7 @@ export function CollectionsPage() {
       </div>
 
       <div className="mt-10 flex items-center gap-3">
-        <div className="grid size-9 place-items-center rounded-xl bg-cream text-honey-deep">
+        <div className="grid size-9 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
           <Layers size={17} />
         </div>
         <div>
@@ -807,7 +807,7 @@ export function CollectionsPage() {
       {/* Smart Albums Section */}
       <div className="mt-10 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="grid size-9 place-items-center rounded-xl bg-cream text-honey-deep">
+          <div className="grid size-9 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
             <Wand2 size={17} />
           </div>
           <div>
@@ -915,7 +915,7 @@ export function CollectionsPage() {
       {tagSummaries.length > 0 && (
         <>
           <div className="mt-10 flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-xl bg-cream text-honey-deep">
+            <div className="grid size-9 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
               <Tag size={17} />
             </div>
             <div>

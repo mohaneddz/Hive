@@ -125,7 +125,7 @@ export function BestPhotoHero({
   if (!winner) return null;
 
   return (
-    <section className="mt-6 overflow-hidden rounded-[22px] border border-honey/30 bg-cream/45">
+    <section className="mt-6 overflow-hidden rounded-[22px] border border-honey/30 bg-honey/10 dark:bg-honey/10">
       <div className="flex flex-wrap items-start gap-6 p-5">
         <Link
           to={`/media/${winner.mediaId}`}

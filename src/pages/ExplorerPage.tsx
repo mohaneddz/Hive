@@ -138,7 +138,7 @@ export function ExplorerPage() {
       {watched.length > 0 && path === null && (
         <>
           <div className="mt-8 flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-xl bg-cream text-honey-deep">
+            <div className="grid size-9 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
               <Eye size={17} />
             </div>
             <div>
@@ -151,7 +151,7 @@ export function ExplorerPage() {
               <button
                 key={folder.id}
                 onClick={() => setPath(folder.path)}
-                className="flex items-center gap-3 rounded-2xl border border-honey/30 bg-cream/40 p-3.5 text-left transition hover:border-honey/60"
+                className="flex items-center gap-3 rounded-2xl border border-honey/30 bg-honey/10 dark:bg-honey/[.08] p-3.5 text-left transition hover:border-honey/60"
               >
                 <Folder size={17} className="shrink-0 text-honey-deep" />
                 <span className="min-w-0 flex-1">
@@ -168,7 +168,7 @@ export function ExplorerPage() {
 
       {self && (
         <Card className="mt-7 flex items-center gap-4 p-5">
-          <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream text-honey-deep">
+          <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-cream dark:bg-honey/15 text-honey-deep">
             <Images size={19} />
           </div>
           <div className="min-w-0 flex-1">
@@ -206,7 +206,7 @@ export function ExplorerPage() {
               key={entry.path}
               className={cn(
                 "flex items-center gap-3 rounded-2xl border p-3.5 transition",
-                entry.isWatched ? "border-honey/40 bg-cream/35" : "border-ink/[.08] bg-panel",
+                entry.isWatched ? "border-honey/40 bg-honey/10 dark:bg-honey/[.08]" : "border-ink/[.08] bg-panel",
               )}
             >
               <button
@@ -229,7 +229,7 @@ export function ExplorerPage() {
               ) : (
                 <button
                   onClick={() => watch(entry)}
-                  className="shrink-0 rounded-xl border border-ink/10 px-3 py-1.5 text-[11px] font-extrabold text-ink transition hover:border-honey/50 hover:bg-cream/40"
+                  className="shrink-0 rounded-xl border border-ink/10 px-3 py-1.5 text-[11px] font-extrabold text-ink transition hover:border-honey/50 hover:bg-honey/10"
                 >
                   Watch
                 </button>

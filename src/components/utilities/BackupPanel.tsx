@@ -85,7 +85,7 @@ export function BackupPanel() {
   return (
     <>
       {pending && (
-        <Card className="mt-6 flex items-center justify-between gap-4 border-honey/50 bg-cream/45 p-5">
+        <Card className="mt-6 flex items-center justify-between gap-4 border-honey/50 bg-honey/15 dark:bg-honey/10 p-5">
           <div className="flex items-center gap-3">
             <RotateCcw size={17} className="shrink-0 text-honey-deep" />
             <div>
@@ -120,7 +120,7 @@ export function BackupPanel() {
         </div>
 
         {lastBackup && (
-          <div className="mt-5 rounded-2xl border border-honey/30 bg-cream/45 px-4 py-3 text-xs font-semibold text-honey-deep">
+          <div className="mt-5 rounded-2xl border border-honey/30 bg-honey/10 dark:bg-honey/10 px-4 py-3 text-xs font-semibold text-honey-deep">
             <p>
               {formatCount(lastBackup.itemCount, "item")} · {formatBytes(lastBackup.bytes)}
             </p>

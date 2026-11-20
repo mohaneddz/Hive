@@ -47,7 +47,7 @@ export function GalleryChatPanel() {
   if (!aiStatus?.llmModelsReady) {
     return (
       <Card className="flex flex-col items-center gap-3 p-8 text-center">
-        <div className="grid size-11 place-items-center rounded-2xl bg-cream text-honey-deep">
+        <div className="grid size-11 place-items-center rounded-2xl bg-cream dark:bg-honey/15 text-honey-deep">
           <Sparkles size={19} />
         </div>
         <p className="text-sm font-extrabold text-ink">Gallery chat isn't set up yet</p>

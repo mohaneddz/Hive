@@ -90,7 +90,7 @@ export function TimelineView() {
               onClick={() => setGranularity(entry.value)}
               className={cn(
                 "rounded-lg px-3 py-1.5 text-xs font-bold text-ink-muted transition",
-                granularity === entry.value && "bg-cream text-honey-deep",
+                granularity === entry.value && "bg-honey/20 text-honey-deep dark:bg-honey/15 dark:text-honey",
               )}
             >
               {entry.label}

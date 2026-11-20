@@ -379,7 +379,7 @@ export function SmartAlbumDialog({
           <Plus size={13} /> Add rule
         </button>
 
-        <p className="mt-3 rounded-xl bg-cream/45 px-3 py-2 text-[11px] text-ink-muted">
+        <p className="mt-3 rounded-xl bg-honey/10 dark:bg-honey/10 px-3 py-2 text-[11px] text-ink-muted">
           {initialAlbum
             ? `Currently ${initialAlbum.itemCount} matching item${initialAlbum.itemCount === 1 ? "" : "s"}. Saving recalculates the album immediately.`
             : "Hive evaluates these rules when you save, then keeps the album updated as the library changes."}

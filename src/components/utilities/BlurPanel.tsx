@@ -68,7 +68,7 @@ export function BlurPanel() {
               className={cn(
                 "rounded-2xl border p-4 text-left transition",
                 preset === index
-                  ? "border-honey bg-cream/55"
+                  ? "border-honey bg-honey/15 dark:bg-honey/10"
                   : "border-ink/[.08] bg-canvas hover:border-honey/40",
               )}
             >
@@ -86,7 +86,7 @@ export function BlurPanel() {
 
       {report && (
         <>
-          <p className="mt-4 rounded-2xl border border-honey/30 bg-cream/45 px-4 py-3 text-xs font-semibold text-honey-deep">
+          <p className="mt-4 rounded-2xl border border-honey/30 bg-honey/10 dark:bg-honey/10 px-4 py-3 text-xs font-semibold text-honey-deep">
             {formatCount(report.measured, "photo")} measured
             {report.scanned > 0 && ` (${report.scanned} this run)`} ·{" "}
             {formatCount(report.items.length, "flagged as soft", "flagged as soft")}

@@ -189,7 +189,7 @@ export function UtilitiesPage() {
             onClick={() => setTab(entry.key)}
             className={cn(
               "inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-bold text-ink-muted transition",
-              tab === entry.key && "bg-cream text-honey-deep",
+              tab === entry.key && "bg-honey/20 text-honey-deep dark:bg-honey/15 dark:text-honey",
             )}
           >
             <entry.icon size={14} />
