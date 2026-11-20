@@ -37,7 +37,7 @@ export function GalleryChatPanel() {
     } catch (error) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: error instanceof Error ? error.message : "Something went wrong." },
+        { role: "assistant", text: error instanceof Error ? error.message : String(error) },
       ]);
     } finally {
       setSending(false);
