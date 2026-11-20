@@ -1,10 +1,11 @@
-import { Lock, Search, Sparkles, X } from "lucide-react";
+import { Lock, MessageCircle, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { GalleryChatPanel } from "@/components/chat/GalleryChatPanel";
 import { MediaCard } from "@/components/media/MediaCard";
 import { SavedSearchesPanel, type SavedSearch } from "@/components/search/SavedSearches";
+import { Button } from "@/components/ui/Button";
 import { useAiStatus } from "@/hooks/useAiStatus";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { isTauri, listPeople, listSearchCameras, searchLibrary, type SearchLibraryRequest } from "@/lib/tauri";
@@ -29,8 +30,8 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 ];
 
 export function SearchPage() {
-  const [searchParams] = useSearchParams();
-  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = searchParams.get("q") ?? "";
   const [mediaType, setMediaType] = useState<MediaType | "all">("all");
   const [favoritesOnly, setFavoritesOnly] = useState(() => searchParams.get("favorites") === "1");
   const [mode, setMode] = useState<"exact" | "semantic">("exact");
@@ -40,6 +41,8 @@ export function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [debouncedQuery, setDebouncedQuery] = useState(query);
+  const [chatOpen, setChatOpen] = useState(false);
+  const chatDrawer = useRef<HTMLElement>(null);
   const { status: aiStatus } = useAiStatus();
 
   const [dateOpen, setDateOpen] = useState(false);
@@ -70,16 +73,28 @@ export function SearchPage() {
     offset,
   });
 
-  useEffect(() => {
-    const fromUrl = searchParams.get("q");
-    if (fromUrl && fromUrl !== query) setQuery(fromUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  const setQuery = (value: string) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (value) next.set("q", value);
+      else next.delete("q");
+      return next;
+    }, { replace: true });
+  };
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedQuery(query), 300);
     return () => window.clearTimeout(timeout);
   }, [query]);
+
+  useEffect(() => {
+    if (chatOpen) chatDrawer.current?.focus();
+  }, [chatOpen]);
+
+  const closeChat = () => {
+    setChatOpen(false);
+    document.getElementById("open-search-chat")?.focus();
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -165,9 +180,22 @@ export function SearchPage() {
             : "Full-text search across filenames and camera metadata."
         }
         action={
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-ink-muted">
-            <Lock size={11} /> Processed locally
-          </span>
+          <div className="flex shrink-0 items-center gap-3">
+            <span className="hidden items-center gap-1.5 text-[11px] font-bold text-ink-muted xl:inline-flex">
+              <Lock size={11} /> Processed locally
+            </span>
+            <Button
+              className="xl:hidden"
+              variant="secondary"
+              icon={<MessageCircle size={15} />}
+              id="open-search-chat"
+              aria-expanded={chatOpen}
+              aria-controls="search-chat"
+              onClick={() => setChatOpen((open) => !open)}
+            >
+              Gallery chat
+            </Button>
+          </div>
         }
       />
 
@@ -374,14 +402,37 @@ export function SearchPage() {
       )}
       </div>
 
-      <div className="flex min-h-[420px] flex-col gap-4 xl:sticky xl:top-0 xl:h-[calc(100vh-120px)]">
+      <div className="flex flex-col gap-4 xl:sticky xl:top-0 xl:h-[calc(100vh-120px)] xl:min-h-[420px]">
         <SavedSearchesPanel
           current={query.trim() ? { query: query.trim(), mode } : null}
           onApply={applySavedSearch}
         />
-        <div className="min-h-0 flex-1">
-          <GalleryChatPanel />
-        </div>
+        {chatOpen && (
+          <button
+            className="fixed inset-0 z-40 bg-black/30 xl:hidden"
+            tabIndex={-1}
+            aria-label="Dismiss gallery chat"
+            onClick={closeChat}
+          />
+        )}
+        <aside
+          id="search-chat"
+          ref={chatDrawer}
+          tabIndex={-1}
+          aria-label="Gallery chat"
+          className={cn(
+            "fixed inset-y-10 right-0 z-50 flex w-[min(100%,400px)] flex-col bg-canvas p-4 shadow-xl xl:static xl:flex xl:w-auto xl:min-h-0 xl:flex-1 xl:bg-transparent xl:p-0 xl:shadow-none",
+            !chatOpen && "hidden",
+          )}
+          onKeyDown={(event) => { if (event.key === "Escape" && chatOpen) closeChat(); }}
+        >
+          <div className="mb-2 flex shrink-0 justify-end xl:hidden">
+            <Button variant="ghost" icon={<X size={15} />} onClick={closeChat}>Close chat</Button>
+          </div>
+          <div className="min-h-0 flex-1">
+            <GalleryChatPanel />
+          </div>
+        </aside>
       </div>
     </div>
   );

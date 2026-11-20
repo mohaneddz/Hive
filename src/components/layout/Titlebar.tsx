@@ -1,5 +1,5 @@
-import { useState, type FormEvent, type MouseEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { HelpCircle, Minus, Search, Square, X } from "lucide-react";
 
 import { appConfig } from "@/config/app";
@@ -11,26 +11,27 @@ import { JobIndicator } from "@/components/layout/JobIndicator";
 export function Titlebar() {
   const { close, isMaximized, minimize, toggleMaximize } = useWindowControls();
   const navigate = useNavigate();
+  const location = useLocation();
+  const searchRoute = location.pathname === routes.search.path;
+  const currentQuery = searchRoute ? new URLSearchParams(location.search).get("q") ?? "" : "";
   const [query, setQuery] = useState("");
+
+  useEffect(() => setQuery(currentQuery), [currentQuery, searchRoute]);
 
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
-    if (query.trim()) navigate(`/search?q=${encodeURIComponent(query.trim())}`);
-  };
-
-  const handleTitlebarDoubleClick = (event: MouseEvent<HTMLElement>) => {
-    const target = event.target as HTMLElement;
-    if (target.closest("button, input, form, a")) return;
-    toggleMaximize();
+    const params = new URLSearchParams(searchRoute ? location.search : "");
+    if (query.trim()) params.set("q", query.trim());
+    else params.delete("q");
+    if (searchRoute || params.has("q")) navigate({ pathname: routes.search.path, search: params.toString() });
   };
 
   return (
     <header
       data-tauri-drag-region
-      onDoubleClick={handleTitlebarDoubleClick}
       className="titlebar flex h-10 shrink-0 select-none items-center gap-4 border-b border-ink/[.07] bg-shell pl-3 pr-2"
     >
-      <div data-tauri-drag-region className="flex shrink-0 items-center gap-2">
+      <div data-tauri-drag-region="deep" className="flex shrink-0 items-center gap-2">
         <HiveMark className="size-5" />
         <span className="text-xs font-extrabold tracking-[.08em] text-ink">{appConfig.name}</span>
       </div>
@@ -41,6 +42,7 @@ export function Titlebar() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            aria-label="Search your hive"
             placeholder="Search your hive"
             className="h-7 w-full rounded-lg border border-ink/[.1] bg-panel/70 pl-8 pr-2 text-[11px] text-ink outline-none placeholder:text-ink-muted focus:border-honey/50"
           />

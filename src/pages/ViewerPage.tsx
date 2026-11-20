@@ -80,7 +80,7 @@ export function ViewerPage() {
   }, [id, item?.id, item?.hash]);
 
   const closeViewer = useCallback(() => {
-    if (window.history.length > 1) navigate(-1);
+    if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
     else navigate("/gallery", { replace: true });
   }, [navigate]);
 
