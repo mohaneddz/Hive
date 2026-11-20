@@ -176,7 +176,7 @@ impl CaptionModel {
 
     /// Turns the image into the encoder's visual features, plus their shape.
     fn encode(&mut self, path: &Path) -> anyhow::Result<(Vec<usize>, Vec<f32>)> {
-        let img = image::open(path)?
+        let img = crate::image_decode::open(path)?
             .resize_exact(IMAGE_SIZE, IMAGE_SIZE, image::imageops::FilterType::Triangle)
             .to_rgb8();
 

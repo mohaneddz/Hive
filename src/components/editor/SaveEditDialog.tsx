@@ -34,11 +34,13 @@ const CHOICES: {
 
 export function SaveEditDialog({
   filename,
+  canOverwrite,
   saving,
   onCancel,
   onConfirm,
 }: {
   filename: string;
+  canOverwrite: boolean;
   saving: boolean;
   onCancel: () => void;
   onConfirm: (mode: SaveMode) => void;
@@ -75,7 +77,7 @@ export function SaveEditDialog({
         </div>
 
         <div className="mt-5 space-y-2.5">
-          {CHOICES.map((choice) => (
+          {CHOICES.filter((choice) => canOverwrite || choice.mode === "copy").map((choice) => (
             <button
               key={choice.mode}
               onClick={() => setMode(choice.mode)}
@@ -105,7 +107,7 @@ export function SaveEditDialog({
                   )}
                 </span>
                 <span className="mt-0.5 block text-[11px] font-bold text-ink-muted">
-                  {choice.summary}
+                    {canOverwrite ? choice.summary : "Saves a JPEG copy beside the original"}
                 </span>
                 <span className="mt-1.5 block text-[11px] leading-relaxed text-ink-muted">
                   {choice.detail}

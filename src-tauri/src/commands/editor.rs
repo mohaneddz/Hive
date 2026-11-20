@@ -2,9 +2,9 @@ use crate::commands::media::row_to_media_item;
 use crate::commands::utilities::unique_destination;
 use crate::models::{EditOps, MediaItem};
 use crate::state::AppState;
-use crate::{indexing, thumbnails};
+use crate::{image_decode, indexing, thumbnails};
 use image::{DynamicImage, ImageFormat};
-use rusqlite::{params, Connection};
+use rusqlite::params;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 
@@ -140,23 +140,6 @@ fn write_image(image: &DynamicImage, target: &Path, format: ImageFormat) -> Resu
     image.save_with_format(target, format).map_err(|e| e.to_string())
 }
 
-/// Re-encoding drops the EXIF block, because the imaging crate writes pixels and
-/// nothing else. Hive keeps its own copy of what it had already extracted, so
-/// Places and the timeline keep working — but the file itself no longer carries
-/// it for other programs. That cost is spelled out in the save dialog.
-fn preserve_extracted_metadata(
-    conn: &Connection,
-    media_id: &str,
-    taken_at: Option<String>,
-) -> Result<(), String> {
-    conn.execute(
-        "UPDATE media_items SET taken_at = COALESCE(?1, taken_at) WHERE id = ?2",
-        params![taken_at, media_id],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 /// Bakes the adjustments into a real file.
 ///
 /// `mode` is the user's answer to "keep the original?":
@@ -177,38 +160,31 @@ pub fn apply_edits(
 ) -> Result<MediaItem, String> {
     let mut conn = state.conn.lock().map_err(|e| e.to_string())?;
 
-    let (source_path, filename, folder_id, taken_at): (String, String, String, Option<String>) = conn
-        .query_row(
-            "SELECT path, filename, folder_id, taken_at FROM media_items WHERE id = ?1",
-            params![media_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-        )
-        .map_err(|e| e.to_string())?;
-
-    let source = PathBuf::from(&source_path);
-    let image = image::open(&source).map_err(|e| e.to_string())?;
-    let edited = apply_ops(image, &ops);
-    let now = chrono::Utc::now().to_rfc3339();
+    let original = row_to_media_item(&conn, &media_id).map_err(|e| e.to_string())?;
+    let source = PathBuf::from(&original.path);
+    let filename = &original.filename;
+    let writable_format = ImageFormat::from_path(&source).ok().filter(ImageFormat::writing_enabled);
 
     let target = match mode.as_str() {
-        "overwrite" => source.clone(),
+        "overwrite" if writable_format.is_some() => source.clone(),
+        "overwrite" => return Err("Hive can save a JPEG copy of this format. The original must be kept.".into()),
         "copy" => {
             let stem = Path::new(&filename)
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| filename.clone());
-            let extension = Path::new(&filename)
-                .extension()
-                .map(|e| format!(".{}", e.to_string_lossy()))
-                .unwrap_or_default();
+            let extension = writable_format.and_then(|_| source.extension()).and_then(|ext| ext.to_str()).unwrap_or("jpg");
             let parent = source.parent().unwrap_or(Path::new("."));
-            unique_destination(parent, &format!("{stem} (edited){extension}"))
+            unique_destination(parent, &format!("{stem} (edited).{extension}"))
         }
         other => return Err(format!("Unknown save mode: {other}")),
     };
 
+    let image = image_decode::open(&source).map_err(|e| format!("{e:#}"))?;
+    let edited = apply_ops(image, &ops);
+    let now = chrono::Utc::now().to_rfc3339();
     let staged = target.with_file_name(format!(".hive-edit-{}.tmp", uuid::Uuid::new_v4()));
-    let format = ImageFormat::from_path(&target).unwrap_or(ImageFormat::Jpeg);
+    let format = writable_format.unwrap_or(ImageFormat::Jpeg);
     if let Err(error) = write_image(&edited, &staged, format) {
         let _ = std::fs::remove_file(&staged);
         return Err(error);
@@ -228,7 +204,8 @@ pub fn apply_edits(
 
     let database_result = (|| -> Result<String, String> {
         let tx = conn.transaction().map_err(|e| e.to_string())?;
-        let indexed = indexing::index_file_force(&tx, &folder_id, &target).map_err(|e| e.to_string())?;
+        // Keep the original camera and location data in Hive when re-encoding strips EXIF.
+        let indexed = indexing::index_edited_file(&tx, &original.folder_id, &target, &original).map_err(|e| e.to_string())?;
         let edited_id = match indexed {
             Some(file) => file.item.id,
             None => tx.query_row(
@@ -237,7 +214,6 @@ pub fn apply_edits(
                 |r| r.get(0),
             ).map_err(|e| e.to_string())?,
         };
-        preserve_extracted_metadata(&tx, &edited_id, taken_at)?;
         let clean = |value: Option<String>| value.map(|text| text.trim().to_string()).filter(|text| !text.is_empty());
         tx.execute(
             "UPDATE media_items SET edited_at = ?1, title = ?2, description = ?3, taken_at_override = ?4 WHERE id = ?5",
@@ -257,7 +233,7 @@ pub fn apply_edits(
     if mode == "overwrite" { let _ = std::fs::remove_file(&backup); }
     let _ = thumbnails::generate_from_decoded_image(&conn, &state.app_data_dir, &edited_id, &edited);
     let item = row_to_media_item(&conn, &edited_id).map_err(|e| e.to_string())?;
-    let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+    let _ = tauri::Emitter::emit(&app, "media:changed", &original.folder_id);
     Ok(item)
 }
 

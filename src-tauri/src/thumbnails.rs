@@ -21,29 +21,10 @@ pub fn viewer_preview(app_data_dir: &Path, media_id: &str, hash: &str, source: &
     }
 
     let temporary = dir.join(format!("{media_id}_{}_preview.jpg", uuid::Uuid::new_v4()));
-    let generated = if ffmpeg_available() {
-        std::process::Command::new("ffmpeg")
-            .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"])
-            .arg(source)
-            .args(["-frames:v", "1", "-vf", "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease", "-q:v", "2"])
-            .arg(&temporary)
-            .output()
-            .map(|output| output.status.success())
-            .unwrap_or(false)
-    } else {
-        false
-    };
-    if !generated {
-        // TIFF and AVIF can be handled by the Rust decoder even without ffmpeg.
-        let fallback = (|| -> anyhow::Result<()> {
-            let image = image::open(source)?;
-            image.thumbnail(4096, 4096).save_with_format(&temporary, image::ImageFormat::Jpeg)?;
-            Ok(())
-        })();
-        if let Err(error) = fallback {
-            let _ = std::fs::remove_file(&temporary);
-            return Err(error);
-        }
+    let image = crate::image_decode::open(source)?;
+    if let Err(error) = image.thumbnail(4096, 4096).to_rgb8().save_with_format(&temporary, image::ImageFormat::Jpeg) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.into());
     }
     if let Err(error) = std::fs::rename(&temporary, &target) {
         let _ = std::fs::remove_file(&temporary);
@@ -115,37 +96,11 @@ pub fn generate_for_image(
     media_id: &str,
     source_path: &Path,
 ) -> anyhow::Result<bool> {
-    let img = match image::open(source_path) {
+    let img = match crate::image_decode::open(source_path) {
         Ok(img) => img,
-        Err(native_error) => {
-            // HEIC/HEIF and camera RAW codecs are platform-dependent. When the
-            // Rust image stack cannot decode one, use the same optional ffmpeg
-            // dependency already supported for video thumbnails.
-            if !ffmpeg_available() {
-                eprintln!("[thumbnails] failed to decode image {source_path:?}: {native_error}");
-                return Ok(false);
-            }
-            let frame_path = std::env::temp_dir().join(format!("hive_image_{}.jpg", uuid::Uuid::new_v4()));
-            let output = std::process::Command::new("ffmpeg")
-                .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"])
-                .arg(source_path)
-                .args(["-frames:v", "1", "-vf", "scale='min(800,iw)':'min(800,ih)':force_original_aspect_ratio=decrease", "-q:v", "3"])
-                .arg(&frame_path)
-                .output();
-            let decoded = match output {
-                Ok(result) if result.status.success() && frame_path.is_file() => image::open(&frame_path),
-                Ok(result) => {
-                    eprintln!("[thumbnails] ffmpeg failed for {source_path:?}: {}", String::from_utf8_lossy(&result.stderr));
-                    let _ = std::fs::remove_file(&frame_path);
-                    return Ok(false);
-                }
-                Err(error) => {
-                    eprintln!("[thumbnails] could not run ffmpeg for {source_path:?}: {error}");
-                    return Ok(false);
-                }
-            };
-            let _ = std::fs::remove_file(&frame_path);
-            decoded?
+        Err(error) => {
+            eprintln!("[thumbnails] failed to decode image {source_path:?}: {error:#}");
+            return Ok(false);
         }
     };
     save_thumbnails(conn, app_data_dir, media_id, &img)?;

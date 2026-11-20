@@ -220,8 +220,13 @@ pub fn compress_images(
             continue;
         };
 
-        let image = match image::open(source) {
+        let image = match crate::image_decode::open(source) {
             Ok(image) => image,
+            Err(error) if crate::indexing::is_supported_media(source) == Some("image") => {
+                report.failed += 1;
+                report.first_error.get_or_insert_with(|| format!("Could not decode {filename}: {error:#}"));
+                continue;
+            }
             Err(_) => {
                 report.skipped += 1;
                 continue;
@@ -308,8 +313,13 @@ pub fn convert_images(
             continue;
         };
 
-        let image = match image::open(source) {
+        let image = match crate::image_decode::open(source) {
             Ok(image) => image,
+            Err(error) if crate::indexing::is_supported_media(source) == Some("image") => {
+                report.failed += 1;
+                report.first_error.get_or_insert_with(|| format!("Could not decode {filename}: {error:#}"));
+                continue;
+            }
             Err(_) => {
                 report.skipped += 1;
                 continue;

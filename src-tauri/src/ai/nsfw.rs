@@ -44,7 +44,7 @@ impl NsfwModel {
     /// Scores the NSFW likelihood of an image. Returns a value between 0.0 and 1.0.
     /// 0 = safe, 1 = definitely NSFW.
     pub fn score(&mut self, path: &Path) -> anyhow::Result<f64> {
-        let img = image::open(path)?
+        let img = crate::image_decode::open(path)?
             .resize_exact(IMAGE_SIZE, IMAGE_SIZE, image::imageops::FilterType::Triangle)
             .to_rgb8();
 

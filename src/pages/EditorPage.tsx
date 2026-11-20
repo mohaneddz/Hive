@@ -725,6 +725,7 @@ export function EditorPage() {
       {askingSave && (
         <SaveEditDialog
           filename={item.filename}
+          canOverwrite={/\.(?:jpe?g|png|gif|webp|bmp|tiff?|avif)$/i.test(item.filename)}
           saving={saving}
           onCancel={() => setAskingSave(false)}
           onConfirm={save}

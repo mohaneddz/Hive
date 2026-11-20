@@ -49,7 +49,7 @@ impl FaceModel {
     }
 
     pub fn detect_faces(&mut self, path: &Path) -> anyhow::Result<Vec<DetectedFace>> {
-        let img = image::open(path)?;
+        let img = crate::image_decode::open(path)?;
         let boxes = self.detect_boxes(&img)?;
 
         let mut faces = Vec::with_capacity(boxes.len());

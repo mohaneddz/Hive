@@ -71,7 +71,7 @@ impl OcrModel {
     /// newline-joined string ordered top-to-bottom, left-to-right. Returns an empty string
     /// (not an error) when no text is found.
     pub fn extract_text(&mut self, path: &Path) -> anyhow::Result<String> {
-        let img = image::open(path)?;
+        let img = crate::image_decode::open(path)?;
         let boxes = self.detect_boxes(&img)?;
         if boxes.is_empty() {
             return Ok(String::new());

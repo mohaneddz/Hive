@@ -104,70 +104,84 @@ pub fn scan_folder(
 
     tauri::async_runtime::spawn_blocking(move || {
         let Ok(conn) = db::open(&db_path) else { return };
-        let files = indexing::walk_folder(std::path::Path::new(&folder_path));
-        let total = files.len() as i64;
+        let root = std::path::Path::new(&folder_path);
+        let was_cancelled = || cancelled_jobs.lock().unwrap().contains(&job_id);
+        let cancel_scan = |current, total| {
+            cancelled_jobs.lock().unwrap().remove(&job_id);
+            jobs::emit_progress(&app, &conn, &job_id, "scan_folder", "cancelled", current, total, None);
+        };
+        jobs::emit_progress(&app, &conn, &job_id, "scan_folder", "running", 0, 0, Some("Finding media files".into()));
+        // Count first so progress has a stable total without retaining every path in memory.
+        let total = indexing::walk_folder(root).take_while(|_| !was_cancelled()).count() as i64;
+        if was_cancelled() {
+            cancel_scan(0, total);
+            return;
+        }
 
         jobs::emit_progress(&app, &conn, &job_id, "scan_folder", "running", 0, total, None);
-        let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+        let mut last_update = std::time::Instant::now();
+        let mut pending_change = false;
+        let mut processed = 0;
+        let mut first_error = None;
 
-        // Indexed here as (media_id, path) so the AI enrichment pass below only has to touch
-        // files this scan actually added/changed, not the whole library.
+        // Only retain paths when an already-loaded AI model needs a second pass.
+        let ai_ready = ai.clip.lock().unwrap().is_some() || ai.ocr.lock().unwrap().is_some();
         let mut newly_indexed: Vec<(String, std::path::PathBuf)> = Vec::new();
 
-        for (i, path) in files.iter().enumerate() {
-            if cancelled_jobs.lock().unwrap().contains(&job_id) {
-                jobs::cancel_job(&conn, &job_id);
-                jobs::emit_progress(
-                    &app,
-                    &conn,
-                    &job_id,
-                    "scan_folder",
-                    "cancelled",
-                    i as i64,
-                    total,
-                    Some("Cancelled by user".to_string()),
-                );
-                cancelled_jobs.lock().unwrap().remove(&job_id);
-                let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+        for path in indexing::walk_folder(root) {
+            if was_cancelled() {
+                cancel_scan(processed, total.max(processed));
+                if pending_change {
+                    let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+                }
                 return;
             }
 
-            match indexing::index_file(&conn, &folder_id, path) {
+            match indexing::index_file(&conn, &folder_id, &path) {
                 Ok(Some(indexed)) => {
-                    let _ = if let Some(ref image) = indexed.decoded_image {
-                        thumbnails::generate_from_decoded_image(&conn, &app_data_dir, &indexed.item.id, image).map(|_| true)
-                    } else {
-                        thumbnails::generate(&conn, &app_data_dir, &indexed.item.id, path, &indexed.item.media_type)
-                    };
-                    newly_indexed.push((indexed.item.id, path.clone()));
-                    let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+                    if let Some(ref image) = indexed.decoded_image {
+                        let _ = thumbnails::generate_from_decoded_image(&conn, &app_data_dir, &indexed.item.id, image);
+                    } else if indexed.item.media_type == "video" {
+                        let _ = thumbnails::generate_for_video(&conn, &app_data_dir, &indexed.item.id, &path);
+                    }
+                    if ai_ready {
+                        newly_indexed.push((indexed.item.id, path.clone()));
+                    }
+                    pending_change = true;
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    jobs::fail_job(&conn, &job_id, &e.to_string());
+                    first_error.get_or_insert_with(|| format!("{}: {e:#}", path.display()));
                 }
             }
+            processed += 1;
 
-            jobs::emit_progress(
-                &app,
-                &conn,
-                &job_id,
-                "scan_folder",
-                "running",
-                i as i64 + 1,
-                total,
-                path.file_name().map(|n| n.to_string_lossy().to_string()),
-            );
+            if last_update.elapsed() >= std::time::Duration::from_millis(250) {
+                jobs::emit_progress(
+                    &app, &conn, &job_id, "scan_folder", "running", processed, total.max(processed),
+                    path.file_name().map(|n| n.to_string_lossy().to_string()),
+                );
+                if pending_change {
+                    let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+                    pending_change = false;
+                }
+                last_update = std::time::Instant::now();
+            }
         }
 
-        jobs::emit_progress(&app, &conn, &job_id, "scan_folder", "completed", total, total, None);
-        let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+        if let Some(error) = &first_error {
+            jobs::fail_job(&conn, &job_id, error);
+        }
+        let status = if first_error.is_some() { "failed" } else { "completed" };
+        jobs::emit_progress(&app, &conn, &job_id, "scan_folder", status, processed, processed, first_error);
+        if pending_change {
+            let _ = tauri::Emitter::emit(&app, "media:changed", &folder_id);
+        }
 
         // AI enrichment (CLIP embeddings + OCR) runs as its own job *after* the scan reports
         // complete, so thumbnails show up immediately and indexing speed doesn't depend on
         // whether the (much slower) AI models happen to be loaded. Only runs for models the
         // user has already downloaded — no-op otherwise.
-        let ai_ready = ai.clip.lock().unwrap().is_some() || ai.ocr.lock().unwrap().is_some();
         if ai_ready && !newly_indexed.is_empty() {
             let enrich_job = jobs::create_job(&conn, "enrich_media").unwrap_or_default();
             let enrich_total = newly_indexed.len() as i64;
@@ -412,7 +426,7 @@ pub fn get_viewable_media_path(
     }
     let browser_image = matches!(
         source.extension().and_then(|ext| ext.to_str()).unwrap_or("").to_ascii_lowercase().as_str(),
-        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp"
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "avif"
     );
     let viewable = if media_type == "image" && !browser_image {
         thumbnails::viewer_preview(&state.app_data_dir, &media_id, &hash, &source)

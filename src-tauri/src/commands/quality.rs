@@ -11,6 +11,7 @@ use crate::models::{BlurReport, BlurryItem};
 use crate::state::AppState;
 use image::GrayImage;
 use rusqlite::params;
+use std::path::Path;
 use tauri::State;
 
 /// Below this, a photo reads as soft. Calibrated on 8-bit greyscale, where a
@@ -88,8 +89,9 @@ pub fn scan_blur(
     let mut scanned = 0i64;
     for (media_id, thumbnail_path, original_path) in pending {
         // Fall back to the original when no thumbnail was generated.
-        let source = thumbnail_path.unwrap_or(original_path);
-        let Ok(image) = image::open(&source) else {
+        let source = thumbnail_path.as_deref().map(Path::new).filter(|path| path.is_file())
+            .unwrap_or_else(|| Path::new(&original_path));
+        let Ok(image) = crate::image_decode::open(source) else {
             continue;
         };
         let score = laplacian_variance(&image.to_luma8());

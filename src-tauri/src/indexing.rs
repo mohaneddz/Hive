@@ -1,4 +1,5 @@
 use crate::models::{ExifData, MediaItem};
+use crate::image_decode;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
@@ -9,13 +10,12 @@ use std::time::UNIX_EPOCH;
 
 const IMAGE_EXTS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "avif", "heic", "heif",
-    "cr2", "cr3", "nef", "arw", "dng", "orf", "rw2", "raf",
 ];
 const VIDEO_EXTS: &[&str] = &["mp4", "mov", "avi", "mkv", "webm"];
 
 pub fn is_supported_media(path: &Path) -> Option<&'static str> {
     let ext = path.extension()?.to_str()?.to_lowercase();
-    if IMAGE_EXTS.contains(&ext.as_str()) {
+    if IMAGE_EXTS.contains(&ext.as_str()) || image_decode::RAW_EXTENSIONS.contains(&ext.as_str()) {
         Some("image")
     } else if VIDEO_EXTS.contains(&ext.as_str()) {
         Some("video")
@@ -39,12 +39,12 @@ fn hash_file(path: &Path) -> std::io::Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn read_exif(path: &Path) -> Option<ExifData> {
-    let file = File::open(path).ok()?;
+fn read_exif(path: &Path) -> (Option<ExifData>, Option<String>) {
+    let Some(file) = File::open(path).ok() else { return (None, None) };
     let mut bufreader = BufReader::new(file);
-    let exif = exif::Reader::new()
+    let Some(exif) = exif::Reader::new()
         .read_from_container(&mut bufreader)
-        .ok()?;
+        .ok() else { return (None, None) };
 
     let get_str = |tag: exif::Tag| -> Option<String> {
         exif.get_field(tag, exif::In::PRIMARY)
@@ -64,7 +64,12 @@ fn read_exif(path: &Path) -> Option<ExifData> {
             .map(|u| u as i64)
     };
 
-    Some(ExifData {
+    let taken_at = exif
+        .get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)
+        .or_else(|| exif.get_field(exif::Tag::DateTime, exif::In::PRIMARY))
+        .map(|field| field.display_value().to_string().replacen(':', "-", 2));
+
+    (Some(ExifData {
         camera_make: get_str(exif::Tag::Make),
         camera_model: get_str(exif::Tag::Model),
         lens: get_str(exif::Tag::LensModel),
@@ -74,7 +79,7 @@ fn read_exif(path: &Path) -> Option<ExifData> {
         focal_length: get_f64(exif::Tag::FocalLength),
         gps_lat: gps_coord(&exif, exif::Tag::GPSLatitude, exif::Tag::GPSLatitudeRef),
         gps_lon: gps_coord(&exif, exif::Tag::GPSLongitude, exif::Tag::GPSLongitudeRef),
-    })
+    }), taken_at)
 }
 
 fn gps_coord(exif: &exif::Exif, tag: exif::Tag, ref_tag: exif::Tag) -> Option<f64> {
@@ -92,21 +97,6 @@ fn gps_coord(exif: &exif::Exif, tag: exif::Tag, ref_tag: exif::Tag) -> Option<f6
     Some(deg * sign)
 }
 
-fn exif_taken_at(path: &Path) -> Option<String> {
-    let file = File::open(path).ok()?;
-    let mut bufreader = BufReader::new(file);
-    let exif = exif::Reader::new()
-        .read_from_container(&mut bufreader)
-        .ok()?;
-    let field = exif
-        .get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)
-        .or_else(|| exif.get_field(exif::Tag::DateTime, exif::In::PRIMARY))?;
-    let raw = field.display_value().to_string();
-    // EXIF format: "YYYY:MM:DD HH:MM:SS" -> normalize to ISO-ish
-    let normalized = raw.replacen(':', "-", 2);
-    Some(normalized)
-}
-
 pub struct IndexedFile {
     pub item: MediaItem,
     pub decoded_image: Option<image::DynamicImage>,
@@ -119,7 +109,7 @@ pub fn index_file(
     folder_id: &str,
     path: &Path,
 ) -> anyhow::Result<Option<IndexedFile>> {
-    index_file_inner(conn, folder_id, path, false)
+    index_file_inner(conn, folder_id, path, false, None)
 }
 
 /// Watcher events are forced through hashing even if a tool preserved size and mtime.
@@ -128,7 +118,16 @@ pub fn index_file_force(
     folder_id: &str,
     path: &Path,
 ) -> anyhow::Result<Option<IndexedFile>> {
-    index_file_inner(conn, folder_id, path, true)
+    index_file_inner(conn, folder_id, path, true, None)
+}
+
+pub fn index_edited_file(
+    conn: &Connection,
+    folder_id: &str,
+    path: &Path,
+    original: &MediaItem,
+) -> anyhow::Result<Option<IndexedFile>> {
+    index_file_inner(conn, folder_id, path, true, Some(original))
 }
 
 fn index_file_inner(
@@ -136,6 +135,7 @@ fn index_file_inner(
     folder_id: &str,
     path: &Path,
     force_hash: bool,
+    edited_from: Option<&MediaItem>,
 ) -> anyhow::Result<Option<IndexedFile>> {
     let media_type = match is_supported_media(path) {
         Some(t) => t,
@@ -145,18 +145,22 @@ fn index_file_inner(
     let metadata = std::fs::metadata(path)?;
     let mtime_ns = metadata.modified().ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok())
         .and_then(|duration| i64::try_from(duration.as_nanos()).ok());
-    let existing: Option<(String, i64, Option<i64>)> = conn
+    let existing: Option<(String, i64, Option<i64>, bool)> = conn
         .query_row(
-            "SELECT hash, size, mtime_ns FROM media_items WHERE path = ?1",
+            "SELECT hash, size, mtime_ns, width IS NULL FROM media_items WHERE path = ?1",
             params![path.to_string_lossy()],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?;
-    if !force_hash && mtime_ns.is_some() && existing.as_ref().is_some_and(|(_, size, previous_mtime)| *size == metadata.len() as i64 && *previous_mtime == mtime_ns) {
+    let retry_decode = image_decode::requires_extended_decoder(path)
+        && existing.as_ref().is_some_and(|(_, _, _, missing_dimensions)| *missing_dimensions);
+    if !force_hash && !retry_decode && mtime_ns.is_some() && existing.as_ref().is_some_and(|(_, size, previous_mtime, _)| *size == metadata.len() as i64 && *previous_mtime == mtime_ns) {
         return Ok(None);
     }
     let hash = hash_file(path)?;
-    if existing.as_ref().is_some_and(|(previous_hash, _, _)| previous_hash == &hash) {
+    let same_file = existing.as_ref().is_some_and(|(previous_hash, _, _, _)| previous_hash == &hash);
+    let loaded_image = if media_type == "image" && (!same_file || retry_decode) { image_decode::open(path).ok() } else { None };
+    if same_file && loaded_image.is_none() {
         conn.execute(
             "UPDATE media_items SET size = ?1, mtime_ns = ?2 WHERE path = ?3",
             params![metadata.len() as i64, mtime_ns, path.to_string_lossy()],
@@ -164,7 +168,6 @@ fn index_file_inner(
         return Ok(None);
     }
 
-    let loaded_image = if media_type == "image" { image::open(path).ok() } else { None };
     let (width, height) = loaded_image
         .as_ref()
         .map(|img| {
@@ -184,8 +187,11 @@ fn index_file_inner(
         .first_or_octet_stream()
         .to_string();
 
-    let exif = if media_type == "image" { read_exif(path) } else { None };
-    let taken_at = if media_type == "image" { exif_taken_at(path) } else { None };
+    let (exif, taken_at) = match edited_from {
+        Some(original) => (original.exif.clone(), original.taken_at.clone()),
+        None if media_type == "image" => read_exif(path),
+        None => (None, None),
+    };
 
     let now: DateTime<Utc> = Utc::now();
     let modified_at: DateTime<Utc> = metadata
@@ -207,6 +213,7 @@ fn index_file_inner(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
 
+    let transaction = conn.is_autocommit().then(|| conn.unchecked_transaction()).transpose()?;
     conn.execute(
         "INSERT INTO media_items
             (id, folder_id, path, filename, hash, size, width, height, duration_ms,
@@ -269,9 +276,15 @@ fn index_file_inner(
                 exif.gps_lon,
             ],
         )?;
+    } else {
+        // A replacement file without EXIF must not keep the old camera or GPS data.
+        conn.execute("DELETE FROM exif_data WHERE media_id = ?1", params![media_id])?;
     }
 
     upsert_fts(conn, &media_id, &filename, exif.as_ref())?;
+    if let Some(transaction) = transaction {
+        transaction.commit()?;
+    }
 
     Ok(Some(IndexedFile {
         item: MediaItem {
@@ -348,14 +361,13 @@ pub fn update_fts_ocr_text(conn: &Connection, media_id: &str, ocr_text: &str) ->
     Ok(())
 }
 
-pub fn walk_folder(root: &Path) -> Vec<std::path::PathBuf> {
+pub fn walk_folder(root: &Path) -> impl Iterator<Item = std::path::PathBuf> + '_ {
     walkdir::WalkDir::new(root)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
         .map(|e| e.path().to_path_buf())
         .filter(|p| is_supported_media(p).is_some())
-        .collect()
 }
 
 #[cfg(test)]
@@ -372,6 +384,7 @@ mod tests {
         conn.execute("INSERT INTO folders (id, path, name, added_at) VALUES ('folder', ?1, 'Fixture', '2026-01-01')", params![dir.to_string_lossy()]).unwrap();
         image::RgbImage::from_pixel(16, 16, image::Rgb([12, 34, 56])).save(&image_path).unwrap();
         let first = index_file(&conn, "folder", &image_path).unwrap().unwrap();
+        conn.execute("INSERT INTO exif_data (media_id, camera_make) VALUES (?1, 'Old camera')", params![first.item.id]).unwrap();
         let modified = std::fs::metadata(&image_path).unwrap().modified().unwrap();
         assert!(index_file(&conn, "folder", &image_path).unwrap().is_none());
         image::RgbImage::from_pixel(16, 16, image::Rgb([56, 34, 12])).save(&image_path).unwrap();
@@ -379,6 +392,20 @@ mod tests {
         assert!(index_file(&conn, "folder", &image_path).unwrap().is_none());
         let changed = index_file_force(&conn, "folder", &image_path).unwrap().unwrap();
         assert_ne!(first.item.hash, changed.item.hash);
+        let stale_exif: i64 = conn.query_row("SELECT COUNT(*) FROM exif_data WHERE media_id = ?1", params![first.item.id], |row| row.get(0)).unwrap();
+        assert_eq!(stale_exif, 0);
+
+        conn.execute("INSERT INTO exif_data (media_id, camera_make, gps_lon) VALUES (?1, 'Test camera', -12.5)", params![changed.item.id]).unwrap();
+        conn.execute("UPDATE media_items SET taken_at = '2026-01-02' WHERE id = ?1", params![changed.item.id]).unwrap();
+        let original = crate::commands::media::row_to_media_item(&conn, &changed.item.id).unwrap();
+        let copy = dir.join("edited.png");
+        std::fs::copy(&image_path, &copy).unwrap();
+        let edited = index_edited_file(&conn, "folder", &copy, &original).unwrap().unwrap();
+        let saved = crate::commands::media::row_to_media_item(&conn, &edited.item.id).unwrap();
+        assert_eq!(saved.taken_at.as_deref(), Some("2026-01-02"));
+        assert_eq!(saved.exif.unwrap().gps_lon, Some(-12.5));
+        let make: String = conn.query_row("SELECT camera_make FROM media_fts WHERE media_id = ?1", params![saved.id], |row| row.get(0)).unwrap();
+        assert_eq!(make, "Test camera");
         drop(conn);
         let _ = std::fs::remove_dir_all(dir);
     }

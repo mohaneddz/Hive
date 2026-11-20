@@ -51,7 +51,7 @@ impl ClipModel {
     /// Preprocesses an image (resize + center-crop to a square, CLIP mean/std normalize) and
     /// runs the CLIP vision tower, returning an L2-normalized 512-dim embedding.
     pub fn embed_image(&mut self, path: &Path) -> anyhow::Result<Vec<f32>> {
-        let img = image::open(path)?;
+        let img = crate::image_decode::open(path)?;
         let resized = img.resize_to_fill(IMAGE_SIZE, IMAGE_SIZE, image::imageops::FilterType::Triangle);
         let rgb = resized.to_rgb8();
 

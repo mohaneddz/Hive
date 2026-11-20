@@ -114,7 +114,7 @@ pub fn try_detect_faces(
 
     let crop_dir = crop_dir(app_data_dir);
     let _ = std::fs::create_dir_all(&crop_dir);
-    let Ok(img) = image::open(path) else { return };
+    let Ok(img) = crate::image_decode::open(path) else { return };
 
     for face in faces {
         let person_id = match find_matching_person(conn, &face.embedding) {

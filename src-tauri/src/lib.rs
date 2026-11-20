@@ -2,6 +2,7 @@ mod ai;
 mod commands;
 mod db;
 mod duplicates;
+mod image_decode;
 mod indexing;
 mod jobs;
 mod models;
