@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ExternalLink,
   Globe,
+  Layers,
   Loader2,
   Maximize,
   MapPin,
@@ -11,6 +12,8 @@ import {
 } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+
+import worldLand from "@/assets/world-land.json";
 
 import { Card } from "@/components/ui/Card";
 import { PageError, PageSkeleton } from "@/components/ui/AsyncState";
@@ -37,19 +40,6 @@ const ZOOM_LEVELS = [
   { label: "Street", precision: 3 },
 ];
 
-const OSM_TILES = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const CARTO_DARK_TILES =
-  "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-
-function isDarkMode() {
-  return document.documentElement.classList.contains("dark");
-}
-
-/**
- * Interactive Leaflet world map with OpenStreetMap / CartoDB dark tiles.
- * Renders CircleMarkers at each PlaceGroup's lat/lon. No custom icon images
- * are needed, so Vite asset handling is not a concern.
- */
 function LeafletMap({
   places,
   activeId,
@@ -62,9 +52,9 @@ function LeafletMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markersRef = useRef<Map<string, L.CircleMarker>>(new Map());
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showOnlineTiles, setShowOnlineTiles] = useState(false);
 
   // Track fullscreen changes
   useEffect(() => {
@@ -85,52 +75,51 @@ function LeafletMap({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const map = L.map(containerRef.current, {
+    const container = containerRef.current;
+    const map = L.map(container, {
       zoomControl: true,
-      attributionControl: true,
-    });
+      minZoom: 1,
+      maxZoom: 18,
+      maxBounds: [[-85, -180], [85, 180]],
+    }).setView([20, 0], 2);
 
     mapRef.current = map;
-
-    const tileUrl = isDarkMode() ? CARTO_DARK_TILES : OSM_TILES;
-    const tile = L.tileLayer(tileUrl, {
-      attribution:
-        isDarkMode()
-          ? '&copy; <a href="https://carto.com/">CartoDB</a>'
-          : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 18,
+    // Natural Earth 1:110m land, v5.1.2, public domain.
+    const basemap = map.createPane("offline-basemap");
+    basemap.style.zIndex = "150";
+    L.geoJSON(worldLand as Parameters<typeof L.geoJSON>[0], {
+      pane: "offline-basemap",
+      interactive: false,
+      attribution: '<a href="https://www.naturalearthdata.com/">Natural Earth</a>',
+      style: {
+        className: "fill-[#dce5d4] stroke-[#a9b7a1] dark:fill-[#303d35] dark:stroke-[#657769]",
+        fillOpacity: 1,
+        weight: 1,
+      },
     }).addTo(map);
-    tileLayerRef.current = tile;
 
-    map.setView([20, 0], 2);
-
-    // Dark-mode observer — swap tiles when .dark is toggled on <html>
-    const observer = new MutationObserver(() => {
-      const dark = isDarkMode();
-      const url = dark ? CARTO_DARK_TILES : OSM_TILES;
-      const attribution = dark
-        ? '&copy; <a href="https://carto.com/">CartoDB</a>'
-        : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-
-      if (tileLayerRef.current) {
-        tileLayerRef.current.remove();
-      }
-      const newTile = L.tileLayer(url, { attribution, maxZoom: 18 }).addTo(map);
-      tileLayerRef.current = newTile;
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
+    const observer = new ResizeObserver(() => map.invalidateSize({ pan: false }));
+    observer.observe(container);
 
     return () => {
       observer.disconnect();
       map.remove();
       mapRef.current = null;
-      tileLayerRef.current = null;
       markersRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !showOnlineTiles) return;
+
+    const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 18,
+      noWrap: true,
+    }).addTo(map);
+    return () => { tiles.remove(); };
+  }, [showOnlineTiles]);
 
   // Add / refresh markers whenever places or activeId changes
   useEffect(() => {
@@ -180,7 +169,10 @@ function LeafletMap({
         {/* Leaflet map container */}
         <div
           ref={containerRef}
-          style={{ height: isFullscreen ? "100vh" : "420px", width: "100%" }}
+          className={cn(
+            "w-full !bg-[#dbe8ec] dark:!bg-[#202e35] dark:[&_.leaflet-tile-pane]:[filter:invert(1)_hue-rotate(180deg)_brightness(.85)_contrast(.9)]",
+            isFullscreen ? "h-screen" : "h-[calc(100vh-220px)] min-h-80",
+          )}
         />
 
         {places.length === 0 && (
@@ -192,6 +184,15 @@ function LeafletMap({
 
         {/* Custom fullscreen toggle overlay */}
         <div className="absolute bottom-[52px] right-2 z-[1000] flex flex-col gap-1 rounded-xl border border-ink/[.1] bg-panel/90 p-1 shadow-lg backdrop-blur">
+          <button
+            onClick={() => setShowOnlineTiles((enabled) => !enabled)}
+            className={cn("icon-button !size-8 border-0", showOnlineTiles && "bg-honey/20 text-honey-deep")}
+            aria-label="Online map tiles"
+            aria-pressed={showOnlineTiles}
+            title={showOnlineTiles ? "Switch to the offline map" : "Show online street details from OpenStreetMap"}
+          >
+            <Layers size={14} />
+          </button>
           <button
             onClick={toggleFullscreen}
             className="icon-button !size-8 border-0"
@@ -352,7 +353,7 @@ export function PlacesPage() {
       )}
 
       {places.length > 0 && geocoding && names.size < places.length && (
-        <div className="mt-6 flex items-center justify-between gap-4 rounded-2xl border border-honey/30 bg-cream/45 px-4 py-3">
+        <div className="mt-6 flex items-center justify-between gap-4 rounded-2xl border border-honey/30 bg-honey/10 dark:bg-honey/10 px-4 py-3">
           <p className="text-xs font-semibold text-honey-deep">
             {names.size === 0
               ? "Place names are enabled but nothing has been looked up yet."
