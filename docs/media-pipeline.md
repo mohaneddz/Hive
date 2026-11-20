@@ -1,18 +1,21 @@
 # Media pipeline inventory
 
-This document records every media ingestion and loading surface. A change to a format or loader must be checked against every row, not just the Gallery. The table records current behavior after the October 2026 loading pass and remaining limitations.
+| Surface | Behavior |
+|---|---|
+| Folder scan | Walks folders without retaining every file path. A size and nanosecond mtime check skips unchanged files. Changed files are hashed and decoded once for dimensions, perceptual hash, and thumbnails. A rescan retries previously indexed AVIF, HEIC, and RAW items with missing dimensions. |
+| Live watcher | Uses the same pipeline. A create or modify notification forces a hash check, including when another editor preserves the file's mtime. |
+| Thumbnails | Generates 240 and 800 pixel JPEGs, keyed by the source hash. Missing cached thumbnails regenerate when viewed. Video thumbnails use system FFmpeg. |
+| Grid loading | Requests scoped thumbnail URLs near the viewport. The WebView reads and caches the assets. |
+| Viewer | Streams standard image and video originals via the asset protocol. TIFF, HEIC, and RAW use cached JPEG previews up to 4096 pixels. The operating system WebView supplies video and AVIF codecs. |
+| Editor | Previews the image and saves changes from a full-resolution decode. HEIC, HEIF, and camera RAW edits save as JPEG copies. Hive retains the source's indexed capture date, camera fields, and GPS on edits. |
+| AI and quality | CLIP, OCR, face recognition, captions, sensitive-content classification, and sharpness use the same image decoder as indexing. Each pass still decodes independently. Duplicate detection uses the perceptual hash stored at indexing time. |
+| Batch tools | Image conversion and compression use the shared decoder. Video compression uses system FFmpeg. |
+| Cache | The cache limit counts thumbnail and preview files. The WebView manages its own asset requests. |
 
-| Surface | Code | Current behavior / remaining limitation |
-|---|---|---|
-| Folder scan | `commands/media.rs`, `indexing.rs` | Recursively collects paths. Size plus nanosecond mtime skips unchanged files on repeat scans; changed files are hashed. Native image decode is shared with thumbnail generation. |
-| Live watcher | `watcher.rs` | Forces a hash check on create/modify events even when a tool preserves mtime. Consecutive events can still repeat work. |
-| Thumbnails | `thumbnails.rs` | Produces 240 and 800 pixel JPEGs named with the source hash, so edits invalidate cached URLs. HEIC/RAW and videos depend on system ffmpeg. Evicted thumbnails rebuild when visible; unsupported files show an error tile instead of loading a full original. |
-| Grid loading | `MediaThumb.tsx`, `lib/tauri.ts`, `commands/media.rs` | Near-viewport cards request scoped thumbnail asset URLs. The WebView handles file loading, decoding and cache behavior without an IPC byte copy. |
-| Viewer | `ViewerPage.tsx`, `commands/media.rs`, `thumbnails.rs` | Streams indexed originals via the asset protocol; videos use native controls. Unsupported image formats get a cached 4096-pixel JPEG preview where ffmpeg or the Rust decoder can read them. |
-| Editor preview and save | `EditorPage.tsx`, `commands/editor.rs` | Uses an 800 pixel preview, then decodes the full original for saving. The backend image decoder cannot always open formats that thumbnail ffmpeg can read. |
-| AI image passes | `ai/clip.rs`, `ai/ocr.rs`, `ai/face.rs`, `ai/nsfw.rs`, `ai/captioning.rs`, `commands/faces.rs` | Each pass decodes source images independently. Model downloads and inference are separate from the initial index job. |
-| Quality and duplicates | `commands/quality.rs`, `duplicates.rs`, `commands/best_photo.rs` | Sharpness and duplicate scoring load original image data; their coverage differs from the thumbnail fallback formats. |
-| Batch tools | `commands/batch.rs` | Image conversion/compression decodes original files; video compression uses ffmpeg. |
-| Cache | `commands/preferences.rs` | File cache limit counts thumbnail files and removes oldest files. The WebView owns in-flight asset requests; large AI passes remain independent. |
+Hive recognizes JPEG, PNG, GIF, WebP, BMP, TIFF, AVIF, HEIC/HEIF, CR2, CR3, NEF, ARW, DNG,
+ORF, RW2, and RAF images. It recognizes MP4, MOV, AVI, MKV, and WebM videos. Decoding still depends
+on the codec, camera model, and file contents.
 
-Current recognized image extensions: JPEG, PNG, GIF, WebP, BMP, TIFF, AVIF, HEIC/HEIF, and RAW (CR2, CR3, NEF, ARW, DNG, ORF, RW2, RAF). Current recognized video extensions: MP4, MOV, AVI, MKV, WebM. Recognition does not guarantee that the platform can decode, view, edit, or play the format; those are separate capabilities.
+Built-in HEIC and RAW decoding use Heifer and FlashRaw. AVIF decoding in the Rust tools uses
+system FFmpeg with AV1 support. FFmpeg also provides a fallback for supported HEIC and RAW variants.
+The video viewer uses the operating system WebView's codec support.

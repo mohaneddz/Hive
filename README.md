@@ -33,8 +33,8 @@ Built with **Tauri, React, TypeScript, Tailwind CSS, SQLite, and a local ONNX/Ca
   (CLIP ViT-B/32 text-to-image), with server-side filters, pagination, and a gallery chat panel
 - **People** — on-device face detection (UltraFace) and recognition (ArcFace) with incremental
   clustering, rename, and a per-person photo grid
-- **Places** — GPS-clustered map view with zoom/pan/fullscreen and optional reverse-geocoded place
-  names, shown even before any photos are geotagged
+- **Places** — GPS-clustered offline world map with zoom, pan, and fullscreen. Online street tiles
+  and reverse-geocoded place names are optional.
 - **Collections** — manual albums plus rule-based smart views (favorites, hidden, archive) and
   auto-groups (timeline events, trips); auto-tags can be corrected in the viewer
 - **Duplicate detection** — perceptual-hash + union-find clustering to surface near-duplicate photos
@@ -43,7 +43,7 @@ Built with **Tauri, React, TypeScript, Tailwind CSS, SQLite, and a local ONNX/Ca
   export, and backup/restore
 - **Trash** — restore, permanently delete, or empty
 - **Gallery chat** — a local LLM (Qwen2.5-1.5B-Instruct GGUF via `candle`, pure Rust) answers questions
-  grounded in retrieved photo metadata (filename, date, camera, OCR text)
+  using filenames, dates, camera metadata, OCR, captions, tags, recognized people, and cached place names
 - **Optional AI enrichment** — auto-tags, captions, aesthetic ranking, best-photo selection, and
   sensitive-content filtering run locally after their models are downloaded
 - **Explorer** — a real drive/folder browser to pick and watch folders, with incremental reindexing on
@@ -116,12 +116,12 @@ src-tauri/
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20.19+ on the 20.x line, or Node.js 22.12+
 - pnpm
 - Rust toolchain
 - Tauri system dependencies for your operating system
-- `ffmpeg` on PATH (optional — enables video thumbnails; without it Hive falls back to a
-  placeholder icon, and helps preview HEIC/RAW files)
+- `ffmpeg` on PATH (optional). It enables video thumbnails and compression, AVIF decoding in the Rust
+  media tools, and a fallback for some files the built-in HEIC and RAW decoders cannot read.
 
 ### Install and run
 
@@ -137,6 +137,7 @@ pnpm dev          # Start Vite
 pnpm build        # Type-check and build frontend assets
 pnpm typecheck    # Run TypeScript checking
 pnpm rust:check   # Check the Rust/Tauri application
+cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
 pnpm preview      # Preview the production frontend build
 pnpm tauri dev    # Run the desktop app
 ```
@@ -153,9 +154,6 @@ pnpm tauri dev    # Run the desktop app
 
 ## Current Status
 
-Actively developed at `0.1.0`; there is no tagged release or installer QA sign-off yet. The core
-library, AI auto-tagging, captions, best-photo selection, aesthetic ranking, and sensitive-content
-filtering have implementations. Some camera RAW/HEIC previews and video thumbnails need system
-`ffmpeg`; video playback depends on codecs available to the operating system WebView. Editing
-uncommon formats remains limited by the Rust image decoder. See [the media pipeline inventory](docs/media-pipeline.md)
-for format and performance details. Files in `docs/state/` are dated historical snapshots.
+Hive is in pre-release development at `0.1.0`. The [roadmap](docs/roadmap.md) tracks completed
+work and the remaining release checks. The [media pipeline inventory](docs/media-pipeline.md)
+describes format and codec coverage. Files in `docs/state/` are dated historical snapshots.
